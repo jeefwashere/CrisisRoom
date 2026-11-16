@@ -66,7 +66,7 @@ function storeCaptions(on: boolean) {
     try { tabStorage()?.setItem(CAPTIONS_STORAGE_KEY, on ? '1' : '0') } catch { /* The choice lasts for this view only. */ }
 }
 
-/** The 3D boardroom or the call tiles: this tab's last choice, else `?view=3d`. Controls, transcript and chat stay the same. */
+/** The 3D boardroom or the call tiles: this tab's last choice, else `?view=`, else 3D. Controls, transcript and chat stay the same. */
 function readView3d(): boolean {
     if (typeof window === 'undefined') return false
     try { return stagePreference(tabStorage()?.getItem(STAGE_STORAGE_KEY) ?? null, window.location.search) === '3d' } catch { return false }

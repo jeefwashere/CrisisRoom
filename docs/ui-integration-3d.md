@@ -151,7 +151,9 @@ several tabs and you hear echoes.
 
 The 3D boardroom now runs inside `my-app` as an alternative stage. Open `#/demo`, keep **Stage: 3D boardroom** (the
 default for solo games) and press "Start solo game as Alex". Alex's frame loads with `?seat=alex&view=3d`; any room URL
-accepts `view=3d`.
+accepts `view=3d` or `view=call`. Live rooms open on the 3D boardroom too (X65): with no stored choice and no `view=`,
+every game screen starts on the 3D stage, the same as the solo demo. Rooms with more than ten members keep the call
+tiles, since the table seats ten.
 
 Switching: the **3D view** button in the control bar flips between the 3D boardroom and the call tiles live, in any
 phase, without reloading; the transcript, audio, turn and chat carry on. The choice is remembered for the tab

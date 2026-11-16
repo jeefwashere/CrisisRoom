@@ -83,10 +83,10 @@ export function boardroomView(input: BoardroomInput, members: readonly BoardMemb
 /** The stage choice for this tab, shared by the in game switch and the demo setup. */
 export const STAGE_STORAGE_KEY = 'boardroom.stageView'
 
-/** The stage to open: the tab's last choice, else `?view=` in the URL, else the call tiles. */
+/** The tab's last choice, else `?view=`, else the 3D boardroom: live rooms open on the same stage as the solo demo (X65). */
 export function stagePreference(stored: string | null, search: string): '3d' | 'call' {
     if (stored === '3d' || stored === 'call') return stored
-    return viewFromSearch(search) ?? 'call'
+    return viewFromSearch(search) ?? '3d'
 }
 
 /** The 3D table seats ten (the room maximum). */

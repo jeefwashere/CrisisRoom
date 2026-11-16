@@ -87,7 +87,9 @@ test('the judge demo returns to its start screen only when the frame leaves its 
 
 test('the stage switch remembers the tab choice over the URL and offers 3D for up to ten seats', () => {
     assert.equal(stagePreference(null, '?view=3d'), '3d')
-    assert.equal(stagePreference(null, ''), 'call')
+    // Live rooms open on the 3D boardroom like the solo demo; call tiles stay one switch away.
+    assert.equal(stagePreference(null, ''), '3d')
+    assert.equal(stagePreference(null, '?view=call'), 'call')
     assert.equal(stagePreference('call', '?view=3d'), 'call')
     assert.equal(stagePreference('3d', ''), '3d')
     assert.equal(stagePreference('bogus', '?view=call'), 'call')
