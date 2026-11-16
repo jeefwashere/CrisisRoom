@@ -188,12 +188,19 @@ Faces, hands and loading (X53 and X56, Nov 16 2026):
   how the voice plays) and `features/boardroom3d/faceExpressions.ts` turns its loudness and brightness into the mouth
   of whoever is talking. Where the browser cannot meter a voice, the mouth follows a built in speech rhythm instead.
   An agent talking at the hub moves no character's mouth.
-* Hands: the right hand rests on a mouse on the table and the left hand on the lap under the table, set in
-  `Boardroom.ts` after the seated clip each frame.
+* Hands: not drawn for now (X64, Nov 16 2026: they looked wrong). Both arms rest toward the lap under the table and
+  each hand bone is shrunk to a point at the wrist, set in `Boardroom.ts` after the seated clip each frame; no mouse is
+  put on the table. `HAND_SCALE = 1` draws the hands again and `MOUSE_SIDE = -1` puts the right hand back on a mouse.
 * The models are meshopt compressed and quantized, and the room and skyline textures are WebP. After a character is
   exported again from Blender, run `node tools/optimize-models.mjs <folder with the originals>` in `my-app`; the loader
   also reads an uncompressed file, so a fresh export works before it is optimized.
 * `preloadBoardroomAssets(seats)` (`features/boardroom3d/assets.ts`) starts the downloads in the lobby and again at
   Start: characters, clips, room and skyline first, props after them, and the scene code when the page is idle.
+* Repeat visits ask the server for nothing (X58). `npm run build` writes a copy of every file under `public/models`
+  and `public/textures` with a hash of its bytes in the name, for example `models/room/room.08c828798a34.glb`
+  (`my-app/tools/hashedAssets.ts`), and `assets.ts` requests those copies, including `props.json` and `room.json`.
+  `deploy/nginx.conf` serves names of that shape with `Cache-Control: public, max-age=31536000, immutable` and the
+  plain names with `no-cache`. Nothing is run by hand: a file that changes gets a new name in the next build. The
+  plain names stay in `dist` for tabs opened before a deploy. `npm run dev` uses the plain names.
 * The loader writes User Timing marks named `board3d:*` (construct, first frame, each character, room, props), which
   show in the browser's performance panel.

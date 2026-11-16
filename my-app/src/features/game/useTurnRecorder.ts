@@ -43,7 +43,9 @@ export function useTurnRecorder(room: RoomSnapshot) {
         capture.setTurn(ownTurn && game ? {
             phaseId: game.phase_id,
             roundId: game.round_id,
-            remainingMs: game.phase_deadline && game.server_time ? Math.max(0, Date.parse(game.phase_deadline) - Date.parse(game.server_time)) : 30000,
+            // A turn without a clock never runs out. It used to get 30 seconds counted from the moment the turn was
+            // first read, so Mic stopped early, or did nothing at all once the turn was 30 seconds old.
+            remainingMs: game.phase_deadline && game.server_time ? Math.max(0, Date.parse(game.phase_deadline) - Date.parse(game.server_time)) : Infinity,
             observedAt: performance.now(),
         } : null)
     }, [capture, ownTurn, game])

@@ -30,6 +30,7 @@ export type TranscriptAction =
     | { type: 'upsert'; entry: TranscriptInput }
     | { type: 'speak'; entry: TranscriptInput; at: number; durationMs: number | null }
     | { type: 'done'; id: string }
+    | { type: 'place'; entry: TranscriptInput; replaces?: string; before?: readonly string[] }
     | { type: 'clear' }
 
 /** Oldest lines drop off beyond this, so a long game never grows the panel without bound. */
@@ -49,7 +50,10 @@ function capped(entries: TranscriptEntry[]): TranscriptEntry[] {
 /**
  * Transcript state transitions. `upsert` adds a line with its full text (or updates an existing line's text in place,
  * keeping its position). `speak` adds or updates a line and starts revealing it in time with its audio; only one line
- * is live at a time. `done` ends the live state and shows the whole line. Unchanged input returns the same array.
+ * is live at a time. `done` ends the live state and shows the whole line. `place` adds a line that arrives late (a
+ * saved transcript) where it belongs: in the place of the line it `replaces` (its live preview), else before the first
+ * line whose ID starts with one of `before` (the lines of later turns), else at the end. Unchanged input returns the
+ * same array.
  */
 export function transcriptReducer(state: TranscriptEntry[], action: TranscriptAction): TranscriptEntry[] {
     switch (action.type) {
@@ -71,6 +75,18 @@ export function transcriptReducer(state: TranscriptEntry[], action: TranscriptAc
             const index = state.findIndex((entry) => entry.id === action.id)
             if (index === -1 || (!state[index].live && !state[index].reveal)) return state
             return state.map((entry, position) => position === index ? { ...entry, live: false, reveal: null } : entry)
+        }
+        case 'place': {
+            const next: TranscriptEntry = { ...action.entry, live: false, reveal: null }
+            const existing = state.findIndex((entry) => entry.id === action.entry.id)
+            const replaced = action.replaces ? state.findIndex((entry) => entry.id === action.replaces) : -1
+            if (replaced !== -1) return state.flatMap((entry, position) => position === replaced ? [next] : position === existing ? [] : [entry])
+            if (existing !== -1) {
+                if (sameInput(state[existing], action.entry)) return state
+                return state.map((entry, position) => position === existing ? { ...entry, ...action.entry } : entry)
+            }
+            const later = action.before?.length ? state.findIndex((entry) => action.before!.some((prefix) => entry.id.startsWith(prefix))) : -1
+            return capped(later === -1 ? [...state, next] : [...state.slice(0, later), next, ...state.slice(later)])
         }
         case 'clear':
             return state.length ? [] : state
@@ -131,6 +147,41 @@ export function expertEntry(roundId: string, take: Pick<ExpertTake, 'kind' | 'la
 
 export function turnEntry(turn: string, member: { name: string; role: string }, text: string, self: boolean): TranscriptInput {
     return { id: `turn:${turn}`, speaker: self ? `${member.name} (you)` : member.name, role: member.role, tone: self ? 'self' : 'member', text }
+}
+
+/** ID of the live line for the caller's own Mic recording in one speaking turn. */
+export const micLiveId = (phaseId: string): string => `mic:${phaseId}`
+
+/**
+ * The caller's own words while their Mic records, as the browser hears them. A preview: the server's transcript of
+ * the same turn replaces this line when it arrives.
+ */
+export function micLiveEntry(phaseId: string, member: { name: string; role: string }, text: string): TranscriptInput {
+    return { id: micLiveId(phaseId), speaker: `${member.name} (you)`, role: `${member.role} · Live words`, tone: 'self', text }
+}
+
+/**
+ * ID prefixes of the transcript lines that belong to speaking turns after the turn `phaseId`: the turn lines, live
+ * Mic lines and saved recordings of every later finished turn and of the current one. A transcript that arrives late
+ * goes before the first of them. Empty while `phaseId` is still the current turn.
+ */
+export function laterTurnLines(phaseId: string, turns: readonly { phase_id: string }[], currentPhaseId: string | null | undefined,
+    recordings: readonly { recording_id: string; phase_id: string }[]): string[] {
+    const index = turns.findIndex((turn) => turn.phase_id === phaseId)
+    if (index === -1) return []
+    const later = turns.slice(index + 1).map((turn) => turn.phase_id)
+    if (currentPhaseId && currentPhaseId !== phaseId && !later.includes(currentPhaseId)) later.push(currentPhaseId)
+    return [...later.flatMap((phase) => [`turn:${phase}`, micLiveId(phase)]),
+        ...recordings.filter((recording) => later.includes(recording.phase_id)).map((recording) => `recording:${recording.recording_id}`)]
+}
+
+/** The latest words of a live caption for a one line strip: the tail, cut at a word, with a leading ellipsis. */
+export function liveTail(text: string, max = 80): string {
+    const clean = text.replace(/\s+/g, ' ').trim()
+    if (clean.length <= max) return clean
+    const tail = clean.slice(clean.length - max)
+    const space = tail.indexOf(' ')
+    return `…${space === -1 ? tail : tail.slice(space + 1)}`
 }
 
 export function recordingTranscriptEntry(recording: Pick<Recording, 'recording_id' | 'status' | 'transcript' | 'reviewed_text'>,

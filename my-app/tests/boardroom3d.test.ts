@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { BOARD_SEATS, STAGE_STORAGE_KEY, boardMembers, boardroomView, offersStageSwitch, screenSubtitle, stagePreference, viewFromSearch } from '../src/features/boardroom3d/boardroomModel.ts'
 import type { BoardMember, BoardroomInput, StageAgent } from '../src/features/boardroom3d/boardroomModel.ts'
-import { DEMO_VIEW_KEY, readDemoView, soloFrameSrc } from '../src/features/demo/demoModel.ts'
+import { DEMO_VIEW_KEY, readDemoView, soloFrameLeftGame, soloFrameSrc } from '../src/features/demo/demoModel.ts'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 
 const member = (id: string, name: string): BoardMember => ({ id, name, role: `${name} role`, color: '#123456', connected: true })
@@ -71,6 +71,18 @@ test('view and demo stage choices', () => {
     const id = '123e4567-e89b-12d3-a456-426614174000'
     assert.equal(soloFrameSrc('/', id, '3d'), `/?seat=alex&view=3d#/room/${id}`)
     assert.equal(soloFrameSrc('/', id, 'call'), `/?seat=alex#/room/${id}`)
+})
+
+test('the judge demo returns to its start screen only when the frame leaves its game', () => {
+    const id = '123e4567-e89b-12d3-a456-426614174000'
+    // In the game, including the ended screen and the summary preview, which keep the room address.
+    assert.equal(soloFrameLeftGame(`#/room/${id}`), false)
+    assert.equal(soloFrameLeftGame(`#/room/${id}?preview=summary`), false)
+    // Leave room sends the frame home; the home page's Judge Demo button sends it to #/demo.
+    assert.equal(soloFrameLeftGame('#/'), true)
+    assert.equal(soloFrameLeftGame(''), true)
+    assert.equal(soloFrameLeftGame('#/demo'), true)
+    assert.equal(soloFrameLeftGame('#/host'), true)
 })
 
 test('the stage switch remembers the tab choice over the URL and offers 3D for up to ten seats', () => {

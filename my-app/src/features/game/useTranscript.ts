@@ -10,6 +10,11 @@ export type TranscriptWriter = {
     speak: (entry: TranscriptInput, durationMs: number | null, elapsedMs?: number) => void
     /** The line finished (or was cut off): drop its live dot and show it in full. */
     done: (id: string) => void
+    /**
+     * Adds a line that arrives late (a saved transcript) where it belongs: in the place of the line it `replaces`,
+     * else before the first line whose ID starts with one of `before`, else at the end.
+     */
+    place: (entry: TranscriptInput, where?: { replaces?: string; before?: readonly string[] }) => void
 }
 
 /** The call's running transcript, owned by the game screen. A new `sessionKey` (new room or game) starts it empty. */
@@ -23,7 +28,8 @@ export function useTranscript(sessionKey: string): { entries: TranscriptEntry[];
     const upsert = useCallback((entry: TranscriptInput) => dispatch({ type: 'upsert', entry }), [])
     const speak = useCallback((entry: TranscriptInput, durationMs: number | null, elapsedMs = 0) => dispatch({ type: 'speak', entry, at: Date.now() - elapsedMs, durationMs }), [])
     const done = useCallback((id: string) => dispatch({ type: 'done', id }), [])
-    const writer = useMemo(() => ({ upsert, speak, done }), [upsert, speak, done])
+    const place = useCallback((entry: TranscriptInput, where: { replaces?: string; before?: readonly string[] } = {}) => dispatch({ type: 'place', entry, ...where }), [])
+    const writer = useMemo(() => ({ upsert, speak, done, place }), [upsert, speak, done, place])
     return { entries, writer }
 }
 

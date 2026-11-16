@@ -70,8 +70,17 @@ const FINGER_CLEARANCE = 0.009
  * console (from 30 cm to the right): its centre in seat space and its size. Its body is half an ellipsoid.
  */
 const MOUSE = { x: -0.24, z: EDGE_GAP + 0.25, halfWidth: 0.034, halfLength: 0.062, height: 0.04 }
-/** The right hand (the character's -X) rests on the mouse; the left rests on the lap, under the table. */
-const MOUSE_SIDE = -1
+/**
+ * Which hand rests on the mouse: -1 the character's right, 1 the left, 0 neither. For now neither (X64): the hand on
+ * the table looked wrong, so both hands rest on the lap, under the table and out of sight, and no mouse is put out.
+ */
+const MOUSE_SIDE = 0 as 1 | -1 | 0
+/**
+ * The hands are not drawn (X64): each hand bone is shrunk to a point at the wrist, which takes the fingers with it,
+ * so no hand shows from any seat or camera. The arms still rest toward the lap, where the sleeves end under the table.
+ * Set to 1 to draw the hands again.
+ */
+const HAND_SCALE = 0.001
 /** Wrist of the mouse hand in seat space: behind the mouse and high enough for the palm to lie on its back. */
 const MOUSE_WRIST = { x: MOUSE.x - 0.004, y: TABLE.height + 0.052, z: MOUSE.z - 0.112 }
 /** How far the mouse hand's fingers open from the clip's clasped pose: partly curled, so they drape over the mouse. */
@@ -288,11 +297,12 @@ class Avatar {
   }
 
   /**
-   * Two bone IK that keeps the hands in place in every mood, applied after the animation pose: the right
-   * hand on the mouse beside the laptop, the left resting on the thigh under the table. The body still plays
-   * the full clip (shoulders, torso and head move as it talks); the hands themselves stay put.
+   * Two bone IK that keeps the hands in place in every mood, applied after the animation pose: each hand rests on
+   * its own thigh under the table (or, when MOUSE_SIDE names one, that hand lies on the mouse beside the laptop). The
+   * body still plays the full clip (shoulders, torso and head move as it talks); the hands themselves stay put.
    */
   placeHands() {
+    for (const arm of this.arms) arm.hand.scale.setScalar(HAND_SCALE)
     const w = this.handWeight
     if (w < 0.01) return
     const toWorld = this.group.getWorldQuaternion(new THREE.Quaternion())
@@ -1162,6 +1172,8 @@ export class Boardroom {
       this.laptops.push(laptop)
       this.scene.add(laptop)
 
+      // No mouse on the table while no hand rests on one.
+      if (MOUSE_SIDE === 0) continue
       const mouse = new THREE.Mesh(mouseShape, mouseBody)
       mouse.scale.set(MOUSE.halfWidth, MOUSE.height, MOUSE.halfLength)
       // Seat space +X is the character's left, so the mouse (negative x) lies to their right.

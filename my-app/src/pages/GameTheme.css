@@ -194,6 +194,7 @@
 .game-call-screen .control-phase-dot { background: #487b52; box-shadow: 0 0 0 3px #487b5233; }
 .game-call-screen .control-clock { border-left-color: #42282026; color: var(--call-red); }
 .game-call-screen .control-round { color: var(--call-muted); }
+.game-call-screen .control-live-words { color: var(--call-ink); }
 .game-call-screen .control-button { color: var(--call-ink); }
 .game-call-screen .control-button:hover:not(:disabled) { background: #4228200a; }
 .game-call-screen .control-disc { background: #ece5d8; }

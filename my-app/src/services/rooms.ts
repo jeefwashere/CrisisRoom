@@ -47,6 +47,11 @@ export type StartRoomInput = {
     ballot_source?: 'ai' | 'authored'
     /** Untimed speaking turns (three window demo): each turn lasts until the speaker finishes or the host skips. */
     manual_turns?: boolean
+    /**
+     * No clock in Round 1: speaking turns and the written decision wait for the people (or a host skip), and the
+     * session has no ceiling. Rounds 2 and 3 (the private session and its quiz questions) stay timed.
+     */
+    untimed?: boolean
     /** Test shortcut: "assessment" opens straight on Round 3 (Rounds 1 and 2 filled from the prerecorded answers). */
     start_at?: StartAt
 }
@@ -111,6 +116,8 @@ export type RoomGame = {
     speaker_index?: number | null
     /** True when speaking turns are untimed (see `StartInput.manual_turns`). */
     manual_turns?: boolean
+    /** True when Round 1 runs without a clock (see `StartInput.untimed`). */
+    untimed?: boolean
     /** The saved clip the active speaker started, so every window plays it from the same moment. */
     speaker_clip?: { clip_id: string; started_at: string; text?: string | null } | null
     /** Open floor rooms: nobody holds the floor, and any member may take it (`take_floor` in allowed_actions). */

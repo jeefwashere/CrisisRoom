@@ -1,9 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {
-    MAX_TRANSCRIPT_ENTRIES, assessmentDividerEntry, briefingEntry, captionsPreference, estimateSpeechMs, expertEntry, privateAutoEntry, privateEntry,
-    privateTranscriptLines, recordingTranscriptEntry, revealedLength, revealedText, silentHoldMs, speechDurationMs, transcriptReducer, turnEntry,
-} from '../src/features/game/transcriptModel.ts'
+import { MAX_TRANSCRIPT_ENTRIES, assessmentDividerEntry, briefingEntry, captionsPreference, estimateSpeechMs, expertEntry, privateAutoEntry, privateEntry, privateTranscriptLines, recordingTranscriptEntry, revealedLength, revealedText, silentHoldMs, speechDurationMs, transcriptReducer, turnEntry, liveTail, micLiveEntry, micLiveId, laterTurnLines } from '../src/features/game/transcriptModel.ts'
 import type { TranscriptEntry, TranscriptInput } from '../src/features/game/transcriptModel.ts'
 import type { PrivateMessage } from '../src/services/facilitation.ts'
 
@@ -130,4 +127,53 @@ test('private transcript lines skip the voiced line, pending replies and already
     assert.deepEqual(lines.map((item) => item.id), ['private:q1', 'private:round3-divider', 'private:t'])
     const all = privateTranscriptLines(messages, messages.length, null, 'Coach', 'Alex')
     assert.deepEqual(all.map((item) => item.id), ['private:q1', 'private:a1', 'private:round3-divider', 'private:t', 'private:q2', 'private:later'])
+})
+
+test('live words for your own Mic turn are one line that the saved transcript replaces in place', () => {
+    const member = { name: 'Alex', role: 'CEO' }
+    const first = micLiveEntry('phase-1', member, 'The appointment')
+    assert.deepEqual(first, { id: 'mic:phase-1', speaker: 'Alex (you)', role: 'CEO · Live words', tone: 'self', text: 'The appointment' })
+    assert.equal(micLiveId('phase-1'), first.id)
+    // The line grows in place while you speak and is marked as being spoken.
+    let state = transcriptReducer([], { type: 'speak', entry: first, at: 0, durationMs: null })
+    state = transcriptReducer(state, { type: 'speak', entry: micLiveEntry('phase-1', member, 'The appointment software is down'), at: 0, durationMs: null })
+    assert.deepEqual(state.map((entry) => [entry.id, entry.text, entry.live]), [['mic:phase-1', 'The appointment software is down', true]])
+    // Stop ends the live mark, and the next speaker's line starts before the server transcript is ready.
+    state = transcriptReducer(state, { type: 'done', id: first.id })
+    state = transcriptReducer(state, { type: 'speak', entry: { id: 'turn:phase-2:morgan', speaker: 'Morgan', role: 'IT recovery lead', tone: 'member', text: 'I support a review point.' }, at: 0, durationMs: 5000 })
+    const saved = { id: 'recording:r1', speaker: 'Alex (you)', role: 'CEO · Unreviewed transcript', tone: 'self' as const, text: 'The appointment software is down.' }
+    state = transcriptReducer(state, { type: 'place', entry: saved, replaces: first.id, before: ['turn:phase-2', 'mic:phase-2'] })
+    assert.deepEqual(state.map((entry) => entry.id), ['recording:r1', 'turn:phase-2:morgan'])
+    assert.equal(state[1].live, true)
+    // Placing it again changes nothing; a reviewed text updates it where it stands.
+    assert.equal(transcriptReducer(state, { type: 'place', entry: saved, replaces: first.id, before: ['turn:phase-2'] }), state)
+    state = transcriptReducer(state, { type: 'place', entry: { ...saved, text: 'Reviewed.' }, replaces: first.id })
+    assert.deepEqual(state.map((entry) => [entry.id, entry.text]), [['recording:r1', 'Reviewed.'], ['turn:phase-2:morgan', 'I support a review point.']])
+})
+
+test('a transcript without a live line goes before the lines of later turns', () => {
+    const line = (id: string, text = id) => ({ id, speaker: 'Someone', role: 'Member', tone: 'member' as const, text })
+    let state = [line('briefing'), line('turn:phase-2:morgan'), line('recording:r3')].reduce((list, entry) => transcriptReducer(list, { type: 'upsert', entry }), [] as ReturnType<typeof transcriptReducer>)
+    const turns = [{ phase_id: 'phase-1' }, { phase_id: 'phase-2' }, { phase_id: 'phase-3' }]
+    const recordings = [{ recording_id: 'r1', phase_id: 'phase-1' }, { recording_id: 'r3', phase_id: 'phase-3' }]
+    const before = laterTurnLines('phase-1', turns, 'phase-4', recordings)
+    assert.deepEqual(before, ['turn:phase-2', 'mic:phase-2', 'turn:phase-3', 'mic:phase-3', 'turn:phase-4', 'mic:phase-4', 'recording:r3'])
+    // No live line to replace (a browser without speech recognition, or another member's recording).
+    state = transcriptReducer(state, { type: 'place', entry: line('recording:r1'), replaces: 'mic:phase-1', before })
+    assert.deepEqual(state.map((entry) => entry.id), ['briefing', 'recording:r1', 'turn:phase-2:morgan', 'recording:r3'])
+    // The current turn has nothing after it, and neither has a turn that is not finished yet: the end is right.
+    assert.deepEqual(laterTurnLines('phase-4', turns, 'phase-4', recordings), [])
+    assert.deepEqual(laterTurnLines('phase-3', turns, 'phase-4', recordings), ['turn:phase-4', 'mic:phase-4'])
+    state = transcriptReducer(state, { type: 'place', entry: line('recording:r4'), before: [] })
+    assert.equal(state.at(-1)?.id, 'recording:r4')
+})
+
+test('the one line strip shows the latest words', () => {
+    assert.equal(liveTail('  short   line '), 'short line')
+    const long = 'The appointment software is unavailable and the director cannot coordinate our response so I propose an interim coordinator'
+    const tail = liveTail(long, 40)
+    assert.ok(tail.startsWith('…'))
+    assert.ok(tail.length <= 41)
+    assert.ok(long.endsWith(tail.slice(1)))
+    assert.ok(!tail.slice(1).startsWith(' '))
 })

@@ -36,7 +36,8 @@ import { useWindowMute } from '../features/game/windowMute'
 import { useSharedClip } from '../features/game/useSharedClip'
 import { useMeetingDocuments } from '../features/facilitation/useMeetingDocuments'
 import { useSpokenLine, useTranscript } from '../features/game/useTranscript'
-import { CAPTIONS_STORAGE_KEY, captionsPreference, recordingTranscriptEntry, speechDurationMs, turnEntry } from '../features/game/transcriptModel'
+import { CAPTIONS_STORAGE_KEY, captionsPreference, laterTurnLines, liveTail, micLiveEntry, micLiveId, recordingTranscriptEntry, speechDurationMs, turnEntry } from '../features/game/transcriptModel'
+import { useLiveWords } from '../features/game/useLiveWords'
 import { clipForTurn } from '../features/game/savedClips'
 import { playerAvatarColor, playerRoleLabel } from '../features/game/playerPresentation'
 import Boardroom3D from '../features/boardroom3d/Boardroom3D'
@@ -196,14 +197,33 @@ function Game({ room, scenarios, error, rename, execute, onViewSummary, chat, le
     const selfMember = members.find((member) => member.id === room.self_member_id)
     const selfName = selfMember?.name ?? 'You'
     const selfRole = selfMember ? selfMember.roleLabel ?? playerRoleLabel(selfMember.role) : 'Board member'
+    const turns = game?.turns
+    const currentPhaseId = game?.phase_id
     useEffect(() => {
         for (const recording of chat.state.recordings) {
             const member = room.members.find((item) => item.member_id === recording.member_id)
             const role = scenario?.roles.find((item) => item.role_id === member?.role_id)?.name ?? 'Board member'
             const entry = recordingTranscriptEntry(recording, { name: member?.display_name ?? 'Room member', role }, recording.member_id === room.self_member_id)
-            if (entry) transcript.upsert(entry)
+            if (!entry) continue
+            // A transcript arrives a few seconds after its turn, often when the next speaker's line is already there.
+            // It takes the place of the live words shown while you spoke, else goes before the lines of later turns.
+            transcript.place(entry, {
+                replaces: recording.member_id === room.self_member_id ? micLiveId(recording.phase_id) : undefined,
+                before: laterTurnLines(recording.phase_id, turns ?? [], currentPhaseId, chat.state.recordings),
+            })
         }
-    }, [chat.state.recordings, room.members, room.self_member_id, scenario, transcript])
+    }, [chat.state.recordings, room.members, room.self_member_id, scenario, transcript, turns, currentPhaseId])
+    // Your own Mic turn: the words appear as you speak (the browser's speech recognition, where it has one).
+    const micPhase = recorder.state.status === 'recording' ? recorder.state.phaseId ?? null : null
+    const liveWords = useLiveWords(micPhase)
+    useEffect(() => {
+        if (micPhase && liveWords) transcript.speak(micLiveEntry(micPhase, { name: selfName, role: selfRole }, liveWords), null)
+    }, [micPhase, liveWords, selfName, selfRole, transcript])
+    useEffect(() => {
+        if (!micPhase) return
+        const id = micLiveId(micPhase)
+        return () => transcript.done(id)
+    }, [micPhase, transcript])
     // Speaking turns: your Auto response clip is captioned in step with its audio; it is never shown on the call.
     const selfLine = auto.playback && auto.turn ? { entry: turnEntry(auto.turn, { name: selfName, role: selfRole }, auto.caption, true), durationMs: auto.playback.durationMs } : null
     useSpokenLine(transcript, selfLine)
@@ -384,6 +404,7 @@ function Game({ room, scenarios, error, rename, execute, onViewSummary, chat, le
             round={`Round ${ownRound ?? game.round_number}`} phaseId={game.phase_id} deadline={game.phase_deadline} serverTime={game.server_time}
             showCountdown={!fullStage} pending={pending}
             mic={{ ...mic, onClick: pressMic }}
+            liveWords={micPhase && liveWords && !transcriptOpen ? liveTail(liveWords) : undefined}
             chat={{ open: chatOpen, unread, onToggle: () => setChatOpen((open) => !open) }}
             captions={{ on: captions, onToggle: toggleCaptions }}
             stage={stageSwitch ? { threeD: show3d, onToggle: toggleView3d } : undefined}

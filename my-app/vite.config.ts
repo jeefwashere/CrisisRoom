@@ -2,11 +2,13 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { dummyDocumentProcessor } from './dev/documentProcessor.ts'
 import { dummySummaryApi } from './dev/summaryApi.ts'
+import { hashedAssets } from './tools/hashedAssets.ts'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
     react(),
+    hashedAssets(),
     {
       name: 'dummy-document-processor',
       configureServer(server) {

@@ -53,6 +53,16 @@ Start validates these conditions atomically:
 
 A failure leaves role assignments, phase, version, and receipts unchanged. A successful exact retry returns the original snapshot, even after later joins. A new Start command after success returns `409 already_started` and cannot rewrite roles.
 
+### No time limits in Round 1 (`untimed`, X60)
+
+The body accepts an optional `"untimed": true` (default `false`). For now the frontend sends it with every Start (`UNTIMED_GAMES` in `my-app/src/features/rooms/roomState.ts`; set it to `false` to bring the Round 1 limits back). The value is returned as `game.untimed`. With it, Round 1 has no clock on a member or on the round:
+
+1. A speaking turn has no clock: it ends when the speaker finishes or the host skips. A speaker whose window has been gone for 30 seconds is still passed over.
+2. The speaking round has no overall length and the session has no ceiling (`game.session_deadline` is `null`).
+3. The written decision stays open until every member has submitted, or the host skips.
+
+`game.phase_deadline` is `null` in those phases, so the screens show no countdown. Rounds 2 and 3 stay timed: the private session keeps its own length, counted from the moment it opens, and each quiz question keeps its 60 seconds with 0 points when it runs out. These also keep their clocks: the briefing (the server ends it when the spoken opening is over), the 90 second expert panel, the reading pause, the result guard, and, in scenarios that vote, the open discussion, the vote and the tie break.
+
 ## Briefing response
 
 The standard room snapshot retains `room_id`, `room_code`, `room_version`, `host_member_id`, `self_member_id`, `capacity`, and `members`. After Start:

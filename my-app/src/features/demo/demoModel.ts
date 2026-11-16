@@ -35,6 +35,14 @@ export function soloFrameSrc(pathname: string, roomId: string, view: DemoView): 
     return `${pathname}?seat=${DEMO_SEATS[0].seat}${view === '3d' ? '&view=3d' : ''}#/room/${roomId}`
 }
 
+/**
+ * True once Alex's frame is no longer on its game: Leave room (after End, or on its own) sends the frame to the home
+ * page, where a seat frame cannot open the demo again. The demo page then returns to its start screen.
+ */
+export function soloFrameLeftGame(hash: string): boolean {
+    return !hash.startsWith('#/room/')
+}
+
 export function readStoredDemo(raw: string | null): StoredDemo | null {
     if (!raw) return null
     try {

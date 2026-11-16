@@ -421,6 +421,99 @@ class PrivateSessionTests(individual.IndividualDecisionTests):
         self.assertEqual((body['stage'], body['quiz']['total']), ('complete', 20))
         self.assertEqual([item['timed_out'] for item in body['quiz']['review']], [False, True, True, True, True])
 
+    async def test_untimed_room_has_no_clock_in_round_one_only(self):
+        self.start_extra = {'untimed': True}
+        briefing = await self.cedar(code='NOTIME')
+        self.assertEqual((briefing['game']['untimed'], briefing['game']['session_deadline']), (True, None))
+        # The briefing keeps its own clock; it is not a member's turn or a round.
+        self.assertIsNotNone(briefing['game']['phase_deadline'])
+        speaking = await self.action(0, briefing, 'briefing/finish')
+        self.assertEqual((speaking['phase'], speaking['game']['phase_deadline']), ('speaking', None))
+        first = self.ids.index(speaking['game']['active_speaker_id'])
+        # Far past the 30 second slot, the round's discussion time and the old session ceiling: same turn.
+        later = await self.advance(3600)
+        self.assertEqual((later['phase'], later['game']['phase_id']), ('speaking', speaking['game']['phase_id']))
+        # A speaker whose window is gone is still passed over, so nobody waits for them for ever.
+        others = [index for index in range(3) if index != first]
+        for _ in range(4):
+            self.clock.now += 10
+            await asyncio.gather(*(self.clients[index].get(self.path) for index in others))
+        moved = await self.view(others[0])
+        self.assertEqual(moved['phase'], 'speaking')
+        self.assertNotEqual(moved['game']['active_speaker_id'], self.ids[first])
+        self.assertEqual(moved['game']['turns'][-1]['reason'], 'disconnected')
+        view = await self.view(first)
+        while view['phase'] == 'speaking':
+            self.assertIsNone(view['game']['phase_deadline'])
+            view = await self.action(self.ids.index(view['game']['active_speaker_id']), view, 'speaker/finish')
+        # The expert panel is the agents' time, not a member's: it keeps its 90 seconds.
+        self.assertEqual((view['phase'], view['game']['discussion_mode']), ('discussion', 'experts'))
+        self.assertIsNotNone(view['game']['phase_deadline'])
+        view = await self.advance(95)
+        self.assertEqual((view['phase'], view['game']['phase_deadline']), ('individual_decision', None))
+        # Far past the 180 second decision limit, decisions are still open.
+        view = await self.advance(3600)
+        self.assertEqual(view['phase'], 'individual_decision')
+        for index in (0, 1):
+            self.assertEqual((await self.decide(index, view, DECISIONS[index]))['phase'], 'individual_decision')
+        private = await self.decide(2, view, DECISIONS[2])
+        self.assertEqual((private['phase'], private['game']['session_deadline']), ('private_session', None))
+        # Rounds 2 and 3 stay timed: the private session has its 1500 seconds, counted from now and not from Start.
+        remaining = (datetime.fromisoformat(private['game']['phase_deadline'])
+                     - datetime.fromisoformat(private['game']['server_time'])).total_seconds()
+        self.assertAlmostEqual(remaining, 1500, delta=1)
+        body = await self.coach(0)
+        # Quiz questions keep their own 60 second clock as well.
+        question = body['quiz']['questions'][0]
+        left = (datetime.fromisoformat(question['deadline'])
+                - datetime.fromisoformat(body['quiz']['server_time'])).total_seconds()
+        self.assertAlmostEqual(left, 60, delta=1)
+        body = await self.choose(0, 1, 20)
+        self.assertEqual((body['quiz']['total'], body['quiz']['current']), (20, 2))
+        self.clock.now += 61.6
+        body = await self.session(0)
+        second = body['quiz']['questions'][1]
+        self.assertEqual((second['timed_out'], second['points'], body['quiz']['current']), (True, 0, 3))
+        for step in range(3, 6):
+            body = await self.choose(0, step, 20)
+        self.assertEqual((body['stage'], body['quiz']['total']), ('complete', 80))
+        self.assertEqual([item['timed_out'] for item in body['quiz']['review']], [False, True, False, False, False])
+        # The others never finish: the private session closes on its own clock.
+        self.assertEqual((await self.view())['phase'], 'private_session')
+        self.clock.now += 1501
+        ended = await self.view()
+        self.assertEqual((ended['phase'], ended['game']['ending_label']), ('ended', gameplay.PRIVATE_ENDING))
+
+    async def test_untimed_host_skip_ends_the_decision_and_the_private_session(self):
+        self.start_extra = {'untimed': True}
+        view = await self.to_private(submit=(1,))
+        self.assertTrue(view['game']['untimed'])
+        ended = await self.action(0, view, 'skip-phase')
+        self.assertEqual((ended['phase'], ended['game']['ending_label']), ('ended', gameplay.PRIVATE_ENDING))
+
+    async def test_untimed_start_at_assessment_keeps_the_round_three_clocks(self):
+        for number in range(3):
+            client = await self.client()
+            self.clients.append(client)
+            response = await client.post('/api/rooms' if number == 0 else '/api/rooms/join',
+                                         json=fixture.command(room_code='ROUND4', display_name=f'Player {number}'))
+            self.ids.append(response.json()['self_member_id'])
+        self.path = '/api/rooms/' + response.json()['room_id']
+        response = await self.clients[0].post(self.path + '/start', json=fixture.command(
+            room_code='ROUND4', scenario_id='cedar_bridge_t01', scenario_version=1, timing_profile='standard_18',
+            players=[{'member_id': member, 'role_id': role} for member, role in zip(self.ids, individual.CEDAR_ROLES)],
+            start_at='assessment', untimed=True))
+        self.assertEqual(response.status_code, 200, response.text)
+        game = response.json()['game']
+        self.assertEqual((response.json()['phase'], game['session_deadline']), ('private_session', None))
+        self.assertIsNotNone(game['phase_deadline'])
+        body = await self.settle(0)
+        self.assertEqual(body['quiz']['current'], 1)
+        self.assertIsNotNone(body['quiz']['questions'][0]['deadline'])
+        bodies = await asyncio.gather(*(self.choose_all(who) for who in range(3)))
+        self.assertTrue(all(body['stage'] == 'complete' for body in bodies))
+        self.assertEqual((await self.view())['phase'], 'ended')
+
     async def test_start_at_assessment_uses_prerecorded_answers(self):
         for number in range(3):
             client = await self.client()

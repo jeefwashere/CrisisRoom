@@ -6,6 +6,31 @@
  */
 
 export const MODELS = `${import.meta.env.BASE_URL}models/`
+
+/**
+ * Copies of the files under public/models and public/textures whose names carry a hash of their bytes, written by
+ * the build (tools/hashedAssets.ts): path under public/ to the path of its copy. The server lets browsers keep those
+ * copies for good, so a second visit asks for nothing. Missing in `npm run dev` and in tests, which use plain names.
+ */
+declare const __BOARDROOM_HASHED_ASSETS__: Record<string, string> | undefined
+const HASHED: Record<string, string> = typeof __BOARDROOM_HASHED_ASSETS__ === 'undefined' ? {} : __BOARDROOM_HASHED_ASSETS__
+
+/** The hashed copy of a model or texture URL, or the URL itself when the build wrote none. */
+function hashedUrl(url: string): string {
+    const base = import.meta.env.BASE_URL
+    const copy = url.startsWith(base) ? HASHED[url.slice(base.length)] : undefined
+    return copy ? `${base}${copy}` : url
+}
+
+/**
+ * Fetches the hashed copy of `url`. A tab that was opened before a deploy can ask for a copy that is gone; it then
+ * gets the file under its plain name, which the server always checks for freshness.
+ */
+async function fetchHashed(url: string, init?: RequestInit): Promise<Response> {
+    const copy = hashedUrl(url)
+    const response = await fetch(copy, init)
+    return response.ok || copy === url ? response : fetch(url, init)
+}
 /** The ten seated characters, in seat fill order: the first member gets the first character, and so on (rooms hold 10). */
 export const CHARACTER_IDS = [
     '01-coo', '03-cto', '06-head-of-communications', '02-cfo', '04-general-counsel',
@@ -31,7 +56,7 @@ async function urgentDone() {
 export function fetchAsset(url: string, priority: 'auto' | 'low' = 'auto'): Promise<ArrayBuffer> {
     const known = downloads.get(url)
     if (known) return known
-    const request = () => fetch(url, { priority }).then((response) => {
+    const request = () => fetchHashed(url, { priority }).then((response) => {
         if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`)
         return response.arrayBuffer()
     })
@@ -51,7 +76,7 @@ let manifest: Promise<Manifest | null> | null = null
 
 /** props.json, or null when it is missing (the scene keeps its simple stand-in furniture). */
 export function propManifest(): Promise<Manifest | null> {
-    manifest ??= fetch(`${MODELS}props/props.json`)
+    manifest ??= fetchHashed(`${MODELS}props/props.json`)
         .then((response) => response.ok && response.headers.get('content-type')?.includes('json') ? response.json() as Promise<Manifest> : null)
         .catch(() => null)
     return manifest
@@ -68,7 +93,7 @@ let roomInfo: Promise<RoomInfo | null> | null = null
 
 /** room.json, or null when it is missing (the scene keeps its placeholder room). */
 export function roomManifest(): Promise<RoomInfo | null> {
-    roomInfo ??= fetch(`${MODELS}room/room.json`)
+    roomInfo ??= fetchHashed(`${MODELS}room/room.json`)
         .then((response) => response.ok && response.headers.get('content-type')?.includes('json') ? response.json() as Promise<RoomInfo> : null)
         .catch(() => null)
     return roomInfo

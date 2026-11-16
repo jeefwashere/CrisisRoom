@@ -26,6 +26,11 @@
 .control-phase-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .control-clock { padding-left: 8px; border-left: 1px solid #ffffff26; color: #ffd27a; font-variant-numeric: tabular-nums; }
 .control-round { flex-shrink: 0; color: #a6abb6; font-size: 12px; font-weight: 600; letter-spacing: .04em; white-space: nowrap; }
+/* Your own words while the Mic records and Captions is hidden: one line, the latest words. */
+/* Laid out from the right, so on a narrow screen the start is cut and the newest words stay in view. */
+.control-live-words { display: flex; flex: 1 1 0; justify-content: flex-end; min-width: 0; overflow: hidden; white-space: nowrap; color: #e7e9ee; font-size: 13px; font-style: italic; }
+/* The phase label keeps its width; only the words give way. */
+.control-bar-status:has(.control-live-words) .control-phase { flex-shrink: 0; }
 
 .control-bar-center { display: flex; align-items: flex-start; justify-content: center; gap: 4px; }
 .control-slot { display: inline-flex; }

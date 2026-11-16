@@ -4,7 +4,7 @@ import type { RoomApi, RoomSnapshot, Scenario, StartAt } from '../../services/ro
 import { clearSeatSession, createTabSession, seatStorage } from '../../services/tabSession'
 import type { StoragePort } from '../../services/tabSession'
 import { acceptSnapshot, startInput } from '../rooms/roomState'
-import { DEFAULT_DEMO_MODE, DEMO_SEATS, DEMO_STORAGE_KEY, DEMO_VIEW_KEY, SPLIT_VIEW_MIN_WIDTH, demoRoles, demoRoomCode, followTarget, phaseLabel, pickDemoScenario, readDemoView, readStoredDemo, seatStatus, soloFrameSrc, startAtInput } from './demoModel'
+import { DEFAULT_DEMO_MODE, DEMO_SEATS, DEMO_STORAGE_KEY, DEMO_VIEW_KEY, SPLIT_VIEW_MIN_WIDTH, demoRoles, demoRoomCode, followTarget, phaseLabel, pickDemoScenario, readDemoView, readStoredDemo, seatStatus, soloFrameLeftGame, soloFrameSrc, startAtInput } from './demoModel'
 import type { BallotSource, DemoMode, DemoView, StoredDemo } from './demoModel'
 import { useSoloBots } from './useSoloBots'
 import WindowsDemo from './WindowsDemo'
@@ -33,6 +33,33 @@ function tabStorage(): StoragePort | null {
 // No claim: each seat frame claims its own stored tab ID when it loads.
 function seatClients(storage: StoragePort): SeatClient[] {
     return DEMO_SEATS.map(({ seat, name }) => ({ seat, name, api: createRoomApi({ session: createTabSession({ storage: seatStorage(storage, seat) }) }) }))
+}
+
+/**
+ * Calls `onLeave` when the page inside `frame` leaves its game. The frame is the same app on the same origin, so its
+ * address can be read; it changes by hash (Leave room), and a reload of the frame is checked again when it has loaded.
+ */
+function watchSoloFrame(frame: HTMLIFrameElement, onLeave: () => void): () => void {
+    let watched: Window | null = null
+    const check = () => {
+        try {
+            const address = frame.contentWindow?.location
+            // The empty document a frame holds before its page arrives is not a departure.
+            if (address && !address.href.startsWith('about:') && soloFrameLeftGame(address.hash)) onLeave()
+        } catch { /* Not this app's page: nothing to read. */ }
+    }
+    const attach = () => {
+        watched?.removeEventListener('hashchange', check)
+        watched = frame.contentWindow
+        watched?.addEventListener('hashchange', check)
+        check()
+    }
+    frame.addEventListener('load', attach)
+    attach()
+    return () => {
+        frame.removeEventListener('load', attach)
+        watched?.removeEventListener('hashchange', check)
+    }
 }
 
 function message(failure: unknown): string {
@@ -234,7 +261,7 @@ export default function DemoRoom() {
         }
     }
 
-    function reset() {
+    const reset = useCallback(() => {
         const storage = tabStorage()
         if (storage) {
             DEMO_SEATS.forEach(({ seat }) => clearSeatSession(storage, seat))
@@ -246,7 +273,16 @@ export default function DemoRoom() {
         setProgress([])
         setError('')
         setPollError('')
-    }
+    }, [])
+
+    // Leaving the call (Leave room, also after End) returns to the demo's start screen, ready for another game.
+    const soloFrame = useRef<HTMLIFrameElement>(null)
+    const soloRoomId = solo ? demo?.room_id : undefined
+    useEffect(() => {
+        const frame = soloFrame.current
+        if (!soloRoomId || !frame) return
+        return watchSoloFrame(frame, reset)
+    }, [soloRoomId, reset])
 
     const roleName = (roleId: string | null) => roleId ? scenarios.flatMap((scenario) => scenario.roles).find((role) => role.role_id === roleId)?.name ?? roleId.replaceAll('_', ' ') : 'No role yet'
 
@@ -269,7 +305,7 @@ export default function DemoRoom() {
             {alert && <p className="demo-error demo-error--float" role="alert">{alert}</p>}
             <div className="demo-frames">
                 <section className="demo-frame" aria-label="Alex's player view">
-                    <iframe title="Alex's player view (test membership)" src={alexFrameSrc} allow="autoplay; microphone; clipboard-write" />
+                    <iframe ref={soloFrame} title="Alex's player view (test membership)" src={alexFrameSrc} allow="autoplay; microphone; clipboard-write" />
                 </section>
             </div>
         </main>

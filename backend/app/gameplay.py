@@ -42,9 +42,16 @@ def decision_mode(game: sim.Game) -> str:
     return "individual" if game.timing.decision_mode == "individual" else "vote"
 
 
+def unclocked(game: sim.Game) -> bool:
+    """Speaking turns have no clock: open floor rooms, and rooms started with `untimed`."""
+    return game.manual_turns or game.untimed
+
+
 def begin_individual_decision(game: sim.Game, instant: float) -> sim.Game:
     """Replaces the board vote: no ballot freezes and no outcome is resolved."""
-    return replace(game, phase=sim.IndividualDecisionPhase(uuid4(), instant + game.timing.individual_decision_seconds))
+    # Untimed rooms (Round 1 without a clock) wait until every member has submitted, or the host skips.
+    ends = math.inf if game.untimed else instant + game.timing.individual_decision_seconds
+    return replace(game, phase=sim.IndividualDecisionPhase(uuid4(), ends))
 
 
 def finish_individual_decision(game: sim.Game, instant: float, electorate: tuple[UUID, ...] = ()) -> sim.Game:
@@ -59,6 +66,7 @@ def finish_individual_decision(game: sim.Game, instant: float, electorate: tuple
 
 def begin_private_session(game: sim.Game, instant: float, electorate: tuple[UUID, ...]) -> sim.Game:
     """Rounds 2 and 3 run per member in PrivateSessions; the room only tracks stage and deadline."""
+    # Rounds 2 and 3 keep their clock in untimed rooms too: only Round 1 runs without one.
     ends = instant + game.timing.private_session_seconds
     session_deadline = game.session_deadline
     if session_deadline is not None:
@@ -214,7 +222,7 @@ def select_speaker(game: sim.Game, instant: float, last_seen: dict[UUID, float],
     while index < len(order):
         member = order[index]
         if 0 <= instant - last_seen[member] < PRESENCE_WINDOW_SECONDS:
-            ends = math.inf if game.manual_turns else min(instant + slot, discussion_deadline)
+            ends = math.inf if unclocked(game) else min(instant + slot, discussion_deadline)
             return replace(game, phase=sim.SpeakingPhase(
                 uuid4(), ends, discussion_deadline, order, index, slot, instant))
         skipped = sim.TurnRecord(member, game.round_id, uuid4(), "disconnected",
@@ -257,10 +265,10 @@ def begin_speaking(game: sim.Game, instant: float, electorate: tuple[UUID, ...],
         # as all the turns together.
         order = electorate * rounds
         slot = game.timing.speaker_max_seconds
-        ends = math.inf if game.manual_turns else instant + slot * len(order)
+        ends = math.inf if unclocked(game) else instant + slot * len(order)
         return select_speaker(game, instant, last_seen, order, 0, slot, ends)
     slot = min(game.timing.speaker_max_seconds, game.timing.discussion_seconds // len(electorate))
-    ends = math.inf if game.manual_turns else instant + game.timing.discussion_seconds
+    ends = math.inf if unclocked(game) else instant + game.timing.discussion_seconds
     return select_speaker(game, instant, last_seen, electorate, 0, slot, ends)
 
 

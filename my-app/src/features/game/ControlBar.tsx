@@ -44,6 +44,8 @@ export type ControlBarProps = {
     deadline?: string | null
     serverTime?: string
     showCountdown: boolean
+    /** While your Mic records with Captions hidden: the latest words heard, on one line. */
+    liveWords?: string
     pending: boolean
     mic: MicControl & { onClick: () => void }
     chat: { open: boolean; unread: number; onToggle: () => void }
@@ -65,7 +67,7 @@ export type ControlBarProps = {
 }
 
 /** Zoom style call toolbar fixed to the bottom of the game screen. Host controls only render when the server allows them. */
-export default function ControlBar({ caption, round, phaseId, deadline, serverTime, showCountdown, pending, mic, chat, captions, stage, mute, report, autoResponse, finishTurn, endMeeting, skip, skipSpeaker, end }: ControlBarProps) {
+export default function ControlBar({ caption, round, phaseId, deadline, serverTime, showCountdown, liveWords, pending, mic, chat, captions, stage, mute, report, autoResponse, finishTurn, endMeeting, skip, skipSpeaker, end }: ControlBarProps) {
     const [armedEnd, setArmedEnd] = useState(false)
     useEffect(() => {
         if (!armedEnd) return
@@ -81,6 +83,7 @@ export default function ControlBar({ caption, round, phaseId, deadline, serverTi
                 {showCountdown && <Countdown key={phaseId + (serverTime ?? '')} deadline={deadline} serverTime={serverTime} className="control-clock" format={formatClock} />}
             </span>
             {round && <span className="control-round">{round}</span>}
+            {liveWords && <span className="control-live-words" aria-hidden="true">{liveWords}</span>}
         </div>
         <div className="control-bar-center">
             <ControlButton icon={micIcon} label={mic.label} title={mic.title} disabled={!mic.action} tone={mic.live ? 'live' : undefined} pressed={mic.live} onClick={mic.onClick} />

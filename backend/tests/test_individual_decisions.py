@@ -23,6 +23,9 @@ DECISIONS = ('Appoint the deputy as interim coordinator and authorize paper appo
 
 class IndividualDecisionTests(unittest.IsolatedAsyncioTestCase):
     client, view, action = fixture.GameplayTests.client, fixture.GameplayTests.view, fixture.GameplayTests.action
+    advance = fixture.GameplayTests.advance
+    # Extra Start fields for a test, for example {'untimed': True}.
+    start_extra: dict = {}
 
     async def asyncSetUp(self):
         self.clock = fixture.Clock()
@@ -45,7 +48,8 @@ class IndividualDecisionTests(unittest.IsolatedAsyncioTestCase):
         self.code = code
         response = await self.clients[0].post(self.path + '/start', json=fixture.command(
             room_code=code, scenario_id='cedar_bridge_t01', scenario_version=1, timing_profile='standard_18',
-            players=[{'member_id': member, 'role_id': role} for member, role in zip(self.ids, CEDAR_ROLES)]))
+            players=[{'member_id': member, 'role_id': role} for member, role in zip(self.ids, CEDAR_ROLES)],
+            **self.start_extra))
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 

@@ -79,6 +79,8 @@ class StartSpec:
     start_at: str = "beginning"
     # start_at "assessment": prerecorded Round 1 decisions by electorate seat (seat 1 first).
     prerecorded_decisions: tuple[str, ...] = ()
+    # No clock in Round 1 (see StartRoom.untimed).
+    untimed: bool = False
 
 
 @dataclass(frozen=True)
@@ -186,6 +188,7 @@ class GameSnapshot:
     # Open floor rooms: who spoke last; they wait until someone else has had the floor.
     last_speaker_id: UUID | None = None
     start_at: str = "beginning"
+    untimed: bool = False
 
     @property
     def facts(self) -> dict:
@@ -422,7 +425,7 @@ class Room:
                 if isinstance(state.phase, sim.EndedPhase) else None,
                 state.timing.private_rounds, self.private_progress(state, assignments),
                 state.phase.index if isinstance(state.phase, sim.SpeakingPhase) and not state.phase.floor_open else None,
-                manual_turns=state.manual_turns, start_at=state.start_at,
+                manual_turns=state.manual_turns, start_at=state.start_at, untimed=state.untimed,
                 floor_open=isinstance(state.phase, sim.SpeakingPhase) and state.phase.floor_open,
                 last_speaker_id=state.phase.last_speaker if open_meeting else None,
                 speaker_clip={"clip_id": state.phase.clip[0], "started_at": gameplay.at(state, state.phase.clip[1]),
@@ -919,6 +922,10 @@ class Rooms:
             if spec.manual_turns:
                 # No automatic timing: turns wait for the speaker and the session has no overall ceiling.
                 phase = replace(phase, state=replace(phase.state, manual_turns=True, session_deadline=None))
+            if spec.untimed:
+                # No clock in Round 1 and no ceiling on the session; Rounds 2 and 3 keep their own clock. Set
+                # before the Round 3 shortcut below, which opens the private session from these settings.
+                phase = replace(phase, state=replace(phase.state, untimed=True, session_deadline=None))
             added = ()
             if spec.start_at == "assessment":
                 phase, added = self.assessment_start(room, phase, roles, spec.prerecorded_decisions, now)

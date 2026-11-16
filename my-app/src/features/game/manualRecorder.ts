@@ -1,5 +1,9 @@
 export type CaptureStatus = 'idle' | 'requesting' | 'recording' | 'stopping' | 'saving' | 'saved' | 'error'
 export type CaptureState = { status: CaptureStatus; phaseId?: string; message: string; retryUpload: boolean }
+/**
+ * The caller's own speaking turn. `remainingMs` is the time the turn had left when it was read at `observedAt`;
+ * `Infinity` for a turn without a clock (an untimed Round 1 turn, an open floor), which never runs out by itself.
+ */
 export type CaptureTurn = { phaseId: string; roundId: string; remainingMs: number; observedAt: number }
 type Grant = { recording_id: string; audio_available: boolean }
 type RecorderDependencies = {
@@ -14,6 +18,8 @@ type RecorderDependencies = {
 type Attempt = { turn: CaptureTurn; cancelled: boolean; stream?: MediaStream; recorder?: MediaRecorder; timer?: ReturnType<typeof setTimeout>; guard?: ReturnType<typeof setInterval> }
 type Pending = { id: string; blob: Blob; phaseId: string; body?: { audio_base64: string; mime_type: string } }
 const MAX_BYTES = 10000000
+/** The server accepts one recording of at most 30 seconds per turn; counted from the press of Mic. */
+export const MAX_RECORDING_MS = 30000
 
 // Owns one capture and its original until the server acknowledges those exact bytes.
 export class ManualTurnRecorder {
@@ -25,8 +31,9 @@ export class ManualTurnRecorder {
     private uploading = false
     private saved = new Set<string>()
     private deps: RecorderDependencies
+    private maxRecordingMs: number
 
-    constructor(deps: RecorderDependencies) { this.deps = deps }
+    constructor(deps: RecorderDependencies, maxRecordingMs = MAX_RECORDING_MS) { this.deps = deps; this.maxRecordingMs = maxRecordingMs }
     getSnapshot = () => this.state
     subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
     private publish(status: CaptureStatus, message: string, phaseId = this.attempt?.turn.phaseId ?? this.state.phaseId) {
@@ -56,7 +63,7 @@ export class ManualTurnRecorder {
         this.attempt = attempt
         this.publish('requesting', 'Requesting microphone permission. You can cancel before recording starts.')
         // Also bounds permission and grant waits without attempting to dismiss browser permission UI.
-        attempt.timer = setTimeout(() => this.stop(), Math.max(0, Math.min(30000, turn.remainingMs - (this.deps.now() - turn.observedAt))))
+        attempt.timer = setTimeout(() => this.stop(), Math.max(0, Math.min(this.maxRecordingMs, turn.remainingMs - (this.deps.now() - turn.observedAt))))
         try {
             attempt.stream = await this.deps.microphone()
             if (!this.active(attempt)) { this.release(attempt); return }

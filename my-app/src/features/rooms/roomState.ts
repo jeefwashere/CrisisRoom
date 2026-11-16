@@ -38,6 +38,12 @@ export function startProblem(room: RoomSnapshot, scenario: Scenario | undefined,
     return null
 }
 
+/**
+ * For now every game runs Round 1 without a clock (task X60): speaking turns and the written decision wait for the
+ * people. Rounds 2 and 3 stay timed. Set this to false to bring the Round 1 time limits back.
+ */
+export const UNTIMED_GAMES = true
+
 export function startInput(room: RoomSnapshot, scenario: Scenario, timing: string, draft: RoleDraft, commandId: string): StartRoomInput {
     const problem = startProblem(room, scenario, draft)
     if (problem) throw new Error(problem)
@@ -49,6 +55,7 @@ export function startInput(room: RoomSnapshot, scenario: Scenario, timing: strin
         scenario_version: scenario.version,
         timing_profile: timing,
         players: room.members.map((member) => ({ member_id: member.member_id, role_id: draft[member.member_id] })),
+        ...(UNTIMED_GAMES ? { untimed: true } : {}),
     }
 }
 

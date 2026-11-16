@@ -71,6 +71,9 @@ class StartRoom(BaseModel):
     ballot_source: Literal["ai", "authored"] = "ai"
     # Untimed speaking turns and no session ceiling: each turn waits for the speaker to finish.
     manual_turns: bool = False
+    # No clock in Round 1: turns and the written decision wait for the people or a host skip, and the session has
+    # no ceiling. Rounds 2 and 3 (the private session and its 60 second quiz questions) stay timed.
+    untimed: bool = False
     # Test shortcut: "assessment" opens directly at Round 3 with prerecorded Round 1 and 2 answers.
     start_at: Literal["beginning", "assessment"] = "beginning"
 
@@ -292,6 +295,8 @@ class GameView(View):
     # Index of the active turn in speaker_order; members repeat when the discussion has several speaking rounds.
     speaker_index: int | None = None
     manual_turns: bool = False
+    # True when the room was started with `untimed` (see StartRoom).
+    untimed: bool = False
     # The saved clip the active speaker started, so every window can play it in step.
     speaker_clip: SpeakerClipView | None = None
     # Open floor rooms: nobody holds the floor and any member may take it.

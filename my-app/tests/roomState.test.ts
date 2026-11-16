@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { assignRole, acceptSnapshot, pollRoom, roomMembers, startInput, startProblem } from '../src/features/rooms/roomState.ts'
+import { assignRole, acceptSnapshot, pollRoom, roomMembers, startInput, startProblem, UNTIMED_GAMES } from '../src/features/rooms/roomState.ts'
 import type { RoomSnapshot, Scenario } from '../src/services/rooms.ts'
 
 const scenario: Scenario = {
@@ -31,6 +31,11 @@ test('Start sends every actual server member ID, and the CEO need not be host', 
     assert.deepEqual(startInput(lobby(), scenario, 'standard_18', roles, 'command').players, [
         { member_id: 'a', role_id: 'security' }, { member_id: 'b', role_id: 'ceo' }, { member_id: 'c', role_id: 'security' },
     ])
+})
+
+test('for now every Start asks for a game without time limits', () => {
+    assert.equal(UNTIMED_GAMES, true)
+    assert.equal(startInput(lobby(), scenario, 'standard_18', roles, 'command').untimed, true)
 })
 
 test('Start guards missing roles, inactive count, invalid role, CEO count, and nonhost caller', () => {

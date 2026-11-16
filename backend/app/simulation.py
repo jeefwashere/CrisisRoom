@@ -268,6 +268,9 @@ class Game:
     # Open floor meeting (three window demo): the CEO speaks first; after each turn anyone may take the floor, one at
     # a time, until the CEO ends the meeting. Turns are untimed.
     manual_turns: bool = False
+    # No clock in Round 1: speaking turns, the speaking round and the written decision wait for the people (or a
+    # host skip), and there is no session ceiling. Rounds 2 and 3 (the private session and its quiz) stay timed.
+    untimed: bool = False
     # Test shortcut: "assessment" starts in the private_session phase with prerecorded Round 1 and 2 answers.
     start_at: str = "beginning"
 

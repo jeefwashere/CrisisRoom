@@ -197,6 +197,28 @@ test('deadline timer stops capture, releases tracks and saves its final chunk', 
     f.controller.dispose()
 })
 
+test('a turn without a clock records however late Mic is pressed, up to the recording limit', async () => {
+    const f = fixture(); let now = 0
+    f.deps.now = () => now
+    const controller = new ManualTurnRecorder(f.deps, 20)
+    // The turn was read long ago and has no deadline: nothing has run out.
+    controller.setTurn({ ...turn(), remainingMs: Infinity })
+    now = 10 * 60 * 1000
+    await controller.start()
+    assert.equal(controller.getSnapshot().status, 'recording')
+    assert.equal(f.counts().starts, 1)
+    // Still the same turn an hour later, as long as the recording limit has not passed.
+    now = 70 * 60 * 1000
+    controller.setTurn({ ...turn(), remainingMs: Infinity, observedAt: now })
+    assert.equal(controller.getSnapshot().status, 'recording')
+    // The recording limit (20 ms here, 30 seconds in the app) counts from the press of Mic and saves what was said.
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    assert.equal(f.counts().recorderStops, 1)
+    assert.equal(f.counts().uploads, 1)
+    assert.equal(controller.getSnapshot().status, 'saved')
+    controller.dispose()
+})
+
 test('unmount while permission is pending releases the late stream without granting or recording', async () => {
     const f = fixture(); const permission = deferred<MediaStream>()
     f.deps.microphone = () => permission.promise

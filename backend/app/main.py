@@ -182,7 +182,8 @@ def create_app(*, secure_cookie: bool | None = None, allowed_origins: list[str] 
         spec = StartSpec(body.room_code, body.scenario_id, body.scenario_version, body.timing_profile,
                          tuple((player.member_id, player.role_id) for player in body.players), body.ballot_source,
                          body.manual_turns, body.start_at,
-                         tuple(item["decision"] for item in prerecorded) if body.start_at == "assessment" else ())
+                         tuple(item["decision"] for item in prerecorded) if body.start_at == "assessment" else (),
+                         untimed=body.untimed)
         view = await rooms.start(member_session, room_id, body.command_id, spec)
         # The opening briefing is written while the windows load, not after their first facilitation poll.
         await facilitation.begin_opening(member_session, room_id)
