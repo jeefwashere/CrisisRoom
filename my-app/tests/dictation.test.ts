@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { DICTATION_UNAVAILABLE, appendTranscript, createSpeechReader, dictationErrorNote, readSpeechEvent, speechRecognitionConstructor, unseenFinal } from '../src/features/game/dictationModel.ts'
+import { DICTATION_UNAVAILABLE, MICROPHONE, SPEECH_BITS_PER_SECOND, appendTranscript, createSpeechReader, dictationErrorNote, readSpeechEvent, recorderOptions, speechRecognitionConstructor, unseenFinal, withTimeout } from '../src/features/game/dictationModel.ts'
 import type { SpeechResultLike } from '../src/features/game/dictationModel.ts'
 
 function result(transcript: string, isFinal: boolean): SpeechResultLike {
@@ -97,4 +97,19 @@ test('unseenFinal compares words without case or punctuation', () => {
     assert.equal(unseenFinal('restore', ['Restore, then report']), '')
     assert.equal(unseenFinal('brand new words', ['something else']), 'brand new words')
     assert.equal(unseenFinal('  ', ['x']), '')
+})
+
+test('recordings use the first container the browser supports at a speech bitrate, from one processed voice channel', () => {
+    assert.deepEqual(recorderOptions(() => true), { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 32000 })
+    // Safari before WebM support records MP4 (AAC).
+    assert.deepEqual(recorderOptions((type) => type === 'audio/mp4'), { mimeType: 'audio/mp4', audioBitsPerSecond: SPEECH_BITS_PER_SECOND })
+    // Nothing recognised: let the browser choose its container, still at the speech bitrate.
+    assert.deepEqual(recorderOptions(() => false), { audioBitsPerSecond: 32000 })
+    assert.deepEqual(MICROPHONE, { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true })
+})
+
+test('a stalled transcription request ends with the given message; a finished one is passed through', async () => {
+    assert.equal(await withTimeout(Promise.resolve('restore one backup'), 1000, 'too slow'), 'restore one backup')
+    await assert.rejects(withTimeout(Promise.reject(new Error('Voice transcription is turned off')), 1000, 'too slow'), /turned off/)
+    await assert.rejects(withTimeout(new Promise<string>(() => undefined), 10, 'too slow'), /too slow/)
 })

@@ -24,7 +24,7 @@ export function AssessmentResults({ assessment, heading = 'Round 3 · Assessment
                     </li>)}
                 </ul>
             </article>)}
-        </div> : <p className="private-note">Detailed feedback appears once all three stages are scored.</p>}
+        </div> : <p className="private-note">Feedback appears once all stages are scored.</p>}
     </section>
 }
 
@@ -59,12 +59,12 @@ export default function PrivateSessionReport({ session, unavailable, notStarted,
             <header className="vote-panel-header"><div><p className="vote-eyebrow">Round 2 · Private coaching</p><h3 id="private-card-title">Your response card</h3></div></header>
             {card && card.status === 'confirmed' ? <dl className="private-card-summary">
                 {CARD_FIELDS.map(({ key, label }) => <div key={key}><dt>{label}</dt><dd>{card.fields[key] || '—'}</dd></div>)}
-            </dl> : <p className="vote-note">{card ? 'Your response card was not confirmed before the private sessions ended.' : 'Your private coaching did not reach the response card.'}</p>}
+            </dl> : <p className="vote-note">{card ? 'Your response card was not confirmed.' : 'No response card was reached.'}</p>}
         </section>
         <section className="vote-panel decision-panel private-report">
             {scored || session.stage === 'complete'
                 ? quiz ? <QuizResults quiz={quiz} heading={heading} /> : <AssessmentResults assessment={session.assessment} heading={heading} />
-                : <><p className="vote-eyebrow">Round 3 · Assessment</p><p className="vote-note">{quiz ? 'No assessment question was answered before the private sessions ended.' : 'No assessment stage was scored before the private sessions ended.'}</p></>}
+                : <><p className="vote-eyebrow">Round 3 · Assessment</p><p className="vote-note">{quiz ? 'No question was answered.' : 'No stage was scored.'}</p></>}
             {session.retryable && retry && <div className="vote-confirm-actions">
                 <p className="vote-note">{quiz ? (session.busy ? 'Preparing your assessment questions…' : 'Your assessment questions could not be prepared.') : session.busy ? 'Scoring your answer…' : 'Scoring failed. Your answer is saved.'}</p>
                 <button type="button" className="vote-primary" disabled={sending || session.busy} onClick={() => void retry()}>Retry</button>

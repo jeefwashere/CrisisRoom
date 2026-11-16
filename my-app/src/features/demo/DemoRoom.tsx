@@ -154,7 +154,7 @@ export default function DemoRoom() {
         const step = (text: string) => { steps.push(text); setProgress([...steps]) }
         if (mode === 'windows') {
             try {
-                step('Alex is creating a room with this window\'s own membership…')
+                step('Creating a room…')
                 saveSessionName(browserSessionStorage(), 'Alex')
                 await roomApi.initializeSession()
                 let room: RoomSnapshot | null = null
@@ -178,9 +178,9 @@ export default function DemoRoom() {
         try {
             DEMO_SEATS.forEach(({ seat }) => clearSeatSession(storage, seat))
             const next = seatClients(storage)
-            step(mode === 'solo' ? 'Creating test sessions: you play Alex; Morgan and Sam are automated…' : 'Creating separate test sessions for Alex, Morgan and Sam…')
+            step('Creating test sessions…')
             await Promise.all(next.map((client) => client.api.initializeSession()))
-            step('Alex is creating a room…')
+            step('Creating a room…')
             let room: RoomSnapshot | null = null
             for (let attempt = 0; !room; attempt++) {
                 try {
@@ -189,7 +189,7 @@ export default function DemoRoom() {
                     if (!(failure instanceof RoomApiError && failure.code === 'room_code_taken') || attempt >= 4) throw failure
                 }
             }
-            step(`Room ${room.room_code} created. Morgan and Sam are joining…`)
+            step(`Room ${room.room_code} created. Joining…`)
             const memberIds = [room.self_member_id]
             for (const client of next.slice(1)) {
                 const joined = await client.api.join({ command_id: crypto.randomUUID(), room_code: room.room_code, display_name: client.name })
@@ -199,14 +199,14 @@ export default function DemoRoom() {
             storage.setItem(DEMO_STORAGE_KEY, JSON.stringify(stored))
             if (startGame) {
                 try {
-                    step('Assigning roles: Alex is CEO, Morgan takes recovery and Sam communications…')
+                    step('Assigning roles…')
                     const catalog = await next[0].api.scenarios()
                     const scenario = pickDemoScenario(catalog)
                     const timing = scenario?.timings[0]?.profile_id
                     if (!scenario || !timing) throw new Error('No scenario with a timing profile is available.')
                     const latest = await next[0].api.snapshot(room.room_id)
                     const body = { ...startInput(latest, scenario, timing, demoRoles(latest, memberIds, scenario), crypto.randomUUID()), ballot_source: ballotSource, ...startAtInput(startAt) }
-                    step(`Alex starts “${scenario.title}” (${timing.replaceAll('_', ' ')}, ${ballotSource === 'ai' ? 'AI generated' : 'hardcoded T01'} voting options${startAt === 'assessment' ? ', straight to Round 3 with prerecorded Rounds 1 and 2' : ''})…`)
+                    step(`Starting “${scenario.title}”${startAt === 'assessment' ? ' at Round 3' : ''}…`)
                     try {
                         await next[0].api.start(room.room_id, body)
                     } catch (failure) {
@@ -215,13 +215,13 @@ export default function DemoRoom() {
                         const { ballot_source: _omitted, ...plain } = body
                         void _omitted
                         await next[0].api.start(room.room_id, { ...plain, command_id: crypto.randomUUID() })
-                        step('This server does not offer a voting options choice yet; it used its default ballot.')
+                        step('This server used its default ballot.')
                     }
                     step('Game started.')
                 } catch (failure) {
                     setError(`The seats loaded, but Start failed: ${message(failure)} Start from Alex's lobby instead.`)
                 }
-            } else step('Seats loaded. Alex can assign roles and Start from the lobby.')
+            } else step('Seats loaded.')
             lastTargetRef.current = ''
             setSnapshots(EMPTY)
             setSelected(0)

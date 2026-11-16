@@ -37,11 +37,15 @@ export default function TurnMedia({ room, recorder }: { room: RoomSnapshot; reco
                 const status = incoming.feedback?.status
                 if (status ? !FEEDBACK_WORKING.has(status) : ++emptyReads >= 5) return
             }
-            timer = setTimeout(() => void poll(), ended ? 3000 : 2000)
+            // A recording being checked or transcribed is ready in about a second, so look again soon instead of
+            // making the speaker wait for the regular poll.
+            const processing = incoming?.recordings.some((item) => item.status === 'validating_audio' || item.status === 'transcribing') ?? false
+            timer = setTimeout(() => void poll(), ended ? 3000 : processing ? 500 : 2000)
         }
         void poll()
         return () => { controller.abort(); clearTimeout(timer) }
-    }, [room.room_id, ended])
+        // The recorder's status is a dependency so that an upload finishing reads the recordings at once.
+    }, [room.room_id, ended, state.status])
     useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl) }, [audioUrl])
     async function play(recording: Recording) {
         try { const blob = await roomApi.audio(room.room_id, recording.recording_id); setAudioUrl(URL.createObjectURL(blob)) }
@@ -69,7 +73,7 @@ export default function TurnMedia({ room, recorder }: { room: RoomSnapshot; reco
             {state.retryUpload && <button type="button" onClick={() => void capture.retryUpload()}>Retry saving</button>}
         </div>}
         {!ended && pending.length > 0 && <details className="game-notice">
-            <summary>{pending.length === 1 ? 'Your recording transcript is ready to review' : `${pending.length} recording transcripts are ready to review`}</summary>
+            <summary>{pending.length === 1 ? 'Review your transcript' : `Review ${pending.length} transcripts`}</summary>
             {pending.map(reviewCard)}
         </details>}
         {notice && <p className="game-media-note" role="status">{notice}</p>}

@@ -1,4 +1,4 @@
-"""Agent drafted ballot options and the Vertex provider, with fakes only (no network)."""
+"""Agent drafted ballot options with fakes only (no network)."""
 
 import asyncio
 import io
@@ -12,10 +12,9 @@ from pathlib import Path
 from backend.app import simulation as sim
 from backend.app.ai_options import InvalidOptions, validate
 from backend.app.main import create_app
-from backend.app.vertex_text import VertexText, parse_json_object
 from backend.tests import test_gameplay as fixture
 
-os.environ["BOARDROOM_VERTEX_ENABLED"] = "false"
+os.environ["BOARDROOM_AGENTS_ENABLED"] = "false"
 
 OUTCOMES = {"O1": "targeted_containment", "O2": "delayed_containment", "O3": "broad_shutdown"}
 
@@ -27,7 +26,7 @@ def drafted(tag, labels=None):
                         for index, label in enumerate(labels)]}
 
 
-class FakeVertex:
+class FakeAgents:
     configured = True
 
     def __init__(self, responses=None):
@@ -46,7 +45,7 @@ class FakeVertex:
 
     async def text(self, prompt, timeout, max_output_tokens=600):
         self.text_prompts.append(prompt)
-        return 'Vertex advisory reply.'
+        return 'Agent advisory reply.'
 
 
 class AiOptionTests(unittest.IsolatedAsyncioTestCase):
@@ -55,11 +54,11 @@ class AiOptionTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         await fixture.GameplayTests.asyncSetUp(self)
-        self.use(FakeVertex())
+        self.use(FakeAgents())
 
-    def use(self, vertex):
-        self.vertex = vertex
-        self.app = create_app(rooms=self.rooms, vertex_provider=vertex)
+    def use(self, agents):
+        self.agents = agents
+        self.app = create_app(rooms=self.rooms, agent_provider=agents)
         self.ai = self.app.state.ai_options
 
     async def ready(self, ballot_source=None, code='AIOPT1'):
@@ -108,9 +107,9 @@ class AiOptionTests(unittest.IsolatedAsyncioTestCase):
             phase_id=first['game']['phase_id'], kind='answer', source='typed', text='MARKER: preserve the finance logs first.'))
         discussion = await self.reach('discussion')
         refreshed = await self.drain()
-        self.assertEqual(len(self.vertex.json_prompts), 2)
-        self.assertIn('MARKER: preserve the finance logs first.', self.vertex.json_prompts[1])
-        prompt = self.vertex.json_prompts[1]
+        self.assertEqual(len(self.agents.json_prompts), 2)
+        self.assertIn('MARKER: preserve the finance logs first.', self.agents.json_prompts[1])
+        prompt = self.agents.json_prompts[1]
         for expected in ('allowed_outcomes', 'Attached incident report', 'Which facts are confirmed?',
                          'The investigation boundary narrows'):
             self.assertIn(expected, prompt)
@@ -118,7 +117,7 @@ class AiOptionTests(unittest.IsolatedAsyncioTestCase):
         new_options = refreshed['game']['current_node']['options']
         self.assertTrue(all(item['label'].startswith('Draft2') for item in new_options))
         await self.drain()
-        self.assertEqual(len(self.vertex.json_prompts), 2, 'one refresh per round only')
+        self.assertEqual(len(self.agents.json_prompts), 2, 'one refresh per round only')
         proposal = await self.action(0, discussion, 'proposal', text='Hire an outside forensic firm today.')
         custom = proposal['game']['proposals'][0]['option_id']
         voting = await self.reach('voting')
@@ -148,14 +147,14 @@ class AiOptionTests(unittest.IsolatedAsyncioTestCase):
     async def test_fallback_when_not_ready_and_late_result_is_discarded(self):
         await self.ready()
         await self.reach('speaking')
-        self.vertex.gate.clear()
+        self.agents.gate.clear()
         await self.ai.tick()
         voting = await self.reach('voting')
         self.assertEqual(voting['game']['options_source'], 'prepared_fallback')
         self.assertEqual(voting['game']['ai_options_status'], 'failed')
         self.assertEqual([item['option_id'] for item in voting['game']['current_node']['options']],
                          ['contain_targeted', 'contain_wait', 'contain_broad'])
-        self.vertex.gate.set()
+        self.agents.gate.set()
         await asyncio.gather(*self.ai.tasks.values())
         after = await self.view()
         self.assertEqual(after['game']['current_node']['options'], voting['game']['current_node']['options'])
@@ -165,17 +164,17 @@ class AiOptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['game']['last_result']['resolution_kind'], 'prepared')
 
     async def test_invalid_output_retries_once_then_falls_back(self):
-        self.use(FakeVertex([{'options': []}, ValueError('bad json')]))
+        self.use(FakeAgents([{'options': []}, ValueError('bad json')]))
         await self.ready()
         await self.reach('speaking')
         failed = await self.drain()
-        self.assertEqual(len(self.vertex.json_prompts), 2)
+        self.assertEqual(len(self.agents.json_prompts), 2)
         self.assertEqual(failed['game']['ai_options_status'], 'failed')
         self.assertEqual(failed['game']['options_source'], 'prepared_fallback')
         self.assertEqual(failed['game']['current_node']['options'][0]['kind'], 'prepared')
 
     async def test_invalid_then_valid_retry_is_used(self):
-        self.use(FakeVertex([drafted('Bad', ['Same label for all', 'Same label for all', 'same LABEL for all!']),
+        self.use(FakeAgents([drafted('Bad', ['Same label for all', 'Same label for all', 'same LABEL for all!']),
                              drafted('Good')]))
         await self.ready()
         await self.reach('speaking')
@@ -186,7 +185,7 @@ class AiOptionTests(unittest.IsolatedAsyncioTestCase):
     async def test_stale_round_job_is_discarded(self):
         await self.ready()
         await self.reach('speaking')
-        self.vertex.gate.clear()
+        self.agents.gate.clear()
         await self.ai.tick()
         old = self.state().ai_options
         voting = await self.reach('voting')
@@ -195,7 +194,7 @@ class AiOptionTests(unittest.IsolatedAsyncioTestCase):
         await self.advance(60)
         await self.advance(30)
         self.assertEqual(self.state().round_number, 2)
-        self.vertex.gate.set()
+        self.agents.gate.set()
         await asyncio.gather(*self.ai.tasks.values())
         self.assertIsNone(self.state().ai_options)
         options = validate(drafted('Late'), OUTCOMES)
@@ -233,20 +232,20 @@ class AiOptionTests(unittest.IsolatedAsyncioTestCase):
         await self.drain()
         await self.reach('discussion')
         await self.drain()
-        self.assertEqual(self.vertex.json_prompts, [])
+        self.assertEqual(self.agents.json_prompts, [])
         voting = await self.reach('voting')
         self.assertEqual(voting['game']['options_source'], 'authored')
         self.assertEqual([item['kind'] for item in voting['game']['current_node']['options']], ['prepared'] * 3)
 
     async def test_disabled_without_configured_provider(self):
-        vertex = FakeVertex()
-        vertex.configured = False
-        self.use(vertex)
+        agents = FakeAgents()
+        agents.configured = False
+        self.use(agents)
         await self.ready()
         speaking = await self.reach('speaking')
         await self.drain()
         self.assertEqual(speaking['game']['ai_options_status'], 'disabled')
-        self.assertEqual(self.vertex.json_prompts, [])
+        self.assertEqual(self.agents.json_prompts, [])
 
     async def test_invalid_ballot_source_is_rejected(self):
         client = await self.client()
@@ -256,7 +255,7 @@ class AiOptionTests(unittest.IsolatedAsyncioTestCase):
             players=[{'member_id': created['self_member_id'], 'role_id': 'ceo'}], ballot_source='model'))
         self.assertEqual(response.status_code, 422)
 
-    async def test_facilitation_uses_vertex_when_configured(self):
+    async def test_facilitation_uses_agents_when_configured(self):
         class Hosted:
             configured = True
             prompts = []
@@ -264,16 +263,23 @@ class AiOptionTests(unittest.IsolatedAsyncioTestCase):
                 self.prompts.append(prompt)
                 return 'Hosted reply.'
         hosted = Hosted()
-        self.app = create_app(rooms=self.rooms, vertex_provider=self.vertex, inference_provider=hosted)
+        self.app = create_app(rooms=self.rooms, agent_provider=self.agents, inference_provider=hosted)
         await self.ready()
         for _ in range(100):
             body = (await self.clients[0].get(self.path + '/facilitation')).json()
             if body['opening']['status'] != 'pending':
                 break
             await asyncio.sleep(0.01)
-        self.assertEqual(body['opening']['source'], 'vertex')
-        self.assertEqual(body['opening']['text'], 'Vertex advisory reply.')
-        self.assertEqual(len(self.vertex.text_prompts), 1)
+        self.assertEqual(body['opening']['source'], 'agent')
+        self.assertEqual(body['opening']['text'], 'Agent advisory reply.')
+        # One request writes this room's opening; the same request is then sent once more in the background, to
+        # have the next room's opening ready ahead (facilitation X54).
+        for _ in range(100):
+            if len(self.agents.text_prompts) >= 2:
+                break
+            await asyncio.sleep(0.01)
+        self.assertEqual(len(self.agents.text_prompts), 2)
+        self.assertEqual(self.agents.text_prompts[0], self.agents.text_prompts[1])
         self.assertEqual(hosted.prompts, [])
 
 
@@ -300,60 +306,6 @@ class ValidationTests(unittest.TestCase):
         for case in bad_cases:
             with self.assertRaises(InvalidOptions):
                 validate(case, OUTCOMES)
-
-
-class FakeResponse(io.BytesIO):
-    def __enter__(self): return self
-    def __exit__(self, *args): self.close()
-
-
-class FakeOpener:
-    def __init__(self, payload): self.payload, self.requests = payload, []
-    def open(self, request, timeout):
-        self.requests.append(request)
-        return FakeResponse(json.dumps(self.payload).encode())
-
-
-class VertexTextTests(unittest.IsolatedAsyncioTestCase):
-    def test_env_configuration(self):
-        with unittest.mock.patch.dict(os.environ, {'GOOGLE_API_KEY': '', 'VERTEX_API_KEY': ''}):
-            os.environ.pop('BOARDROOM_VERTEX_ENABLED', None)
-            self.assertFalse(VertexText.from_env().configured)
-        with unittest.mock.patch.dict(os.environ, {'GOOGLE_API_KEY': 'test-key', 'BOARDROOM_VERTEX_ENABLED': ''}):
-            self.assertTrue(VertexText.from_env().configured)
-        with unittest.mock.patch.dict(os.environ, {'GOOGLE_API_KEY': 'test-key', 'BOARDROOM_VERTEX_ENABLED': 'false'}):
-            self.assertFalse(VertexText.from_env().configured)
-        os.environ['BOARDROOM_VERTEX_ENABLED'] = 'false'
-
-    def test_parse_json_object(self):
-        self.assertEqual(parse_json_object('```json\n{"a": 1}\n```'), {'a': 1})
-        for bad in ('no json', '[1]', 'Sure: {"a": 1}', '{"a": 1} trailing'):
-            with self.assertRaises(ValueError):
-                parse_json_object(bad)
-
-    async def test_generate_records_usage_with_unlimited_ledger(self):
-        payload = {'candidates': [{'finishReason': 'STOP', 'content': {'parts': [
-            {'text': 'hidden', 'thought': True}, {'text': '{"options": []}'}]}}],
-            'usageMetadata': {'promptTokenCount': 10, 'candidatesTokenCount': 5, 'totalTokenCount': 15}}
-        with tempfile.TemporaryDirectory() as directory:
-            ledger = Path(directory) / 'vertex' / 'ledger.sqlite'
-            opener = FakeOpener(payload)
-            vertex = VertexText('test-key', ledger=ledger, unlimited=True, opener=opener)
-            self.assertFalse(ledger.exists(), 'construction never touches disk')
-            self.assertEqual(await vertex.json('prompt', 5), {'options': []})
-            status = vertex.budget().status()
-            self.assertTrue(status['unlimited'])
-            self.assertEqual(status['attempts'], 1)
-            body = json.loads(opener.requests[0].data)
-            self.assertEqual(body['generationConfig']['responseMimeType'], 'application/json')
-            # Structured answers skip thinking for speed.
-            self.assertEqual(body['generationConfig']['thinkingConfig'], {'thinkingBudget': 0})
-            failing = VertexText('test-key', ledger=ledger, opener=FakeOpener({'candidates': [{'finishReason': 'MAX_TOKENS'}]}))
-            with self.assertRaises(Exception) as caught:
-                await failing.text('prompt', 5)
-            self.assertNotIn('test-key', str(caught.exception))
-            # The JSON call above, then the failed text request and its two backup attempts.
-            self.assertEqual(failing.budget().status()['attempts'], 4)
 
 
 

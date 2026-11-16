@@ -1,8 +1,7 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { MotionConfig } from 'motion/react'
 import PlayerRoster from '../features/lobby/PlayerRoster'
 import ScenarioBrief from '../features/lobby/ScenarioBrief'
-import { SCENARIO_BRIEF } from '../features/lobby/scenarioBriefModel'
 import { pickDemoScenario } from '../features/demo/demoModel'
 import LobbyIcon from '../features/lobby/LobbyIcon'
 import RolePicker from '../features/lobby/RolePicker'
@@ -15,11 +14,15 @@ import Summary from './Summary'
 import LobbyNameEditor from '../features/rooms/LobbyNameEditor'
 import RoomChat from '../features/rooms/RoomChat'
 import { useRoomChat } from '../features/rooms/useRoomChat'
+import { preloadBoardroomAssets } from '../features/boardroom3d/assets'
 import './Host.css'
 
 function Host({ roomId, initialRoom }: { roomId: string; initialRoom?: RoomSnapshot }) {
     const { room, scenarios, error, accessError, starting, leaving, start, leave, rename, execute, refresh } = useRoom(roomId, initialRoom)
     const chat = useRoomChat(roomId, refresh, room?.phase === 'ended')
+    // Fetch the 3D boardroom models while players are still in the lobby (the game screen only mounts at Start).
+    const lobbySeats = room?.members.length ?? 0
+    useEffect(() => { if (lobbySeats > 0) preloadBoardroomAssets(lobbySeats) }, [lobbySeats])
     const [draft, setDraft] = useState<RoleDraft>({})
     const [selectedTiming, setSelectedTiming] = useState('')
     const [notice, setNotice] = useState('')
@@ -52,7 +55,7 @@ function Host({ roomId, initialRoom }: { roomId: string; initialRoom?: RoomSnaps
         try {
             if (navigator.share && window.matchMedia('(pointer: coarse)').matches) { await navigator.share({ title: 'Boardroom Crisis Simulator', text, url: link }); return }
             await navigator.clipboard.writeText(link)
-            setNotice(`Invite link copied. Share it with up to ${room.capacity - room.members.length} more players.`)
+            setNotice('Invite link copied.')
         } catch (failure) {
             if (failure instanceof DOMException && failure.name === 'AbortError') return
             setNotice(`Invite link: ${link}`)
@@ -96,10 +99,9 @@ function Host({ roomId, initialRoom }: { roomId: string; initialRoom?: RoomSnaps
                     <div className="lobby-setting"><span>Timing</span><RolePicker id="lobby-timing" className="lobby-setting-picker" opaqueMenu ariaLabel="Timing profile" disabled={!isHost || controlsDisabled} value={timing} roles={scenario?.timings.map((option) => ({ id: option.profile_id, label: `${option.profile_id.replaceAll('_', ' ')} (${option.briefing_seconds}s briefing)` })) ?? []} onChange={setSelectedTiming} /></div>
                 </div>
                 {isHost && <button className="lobby-start-button" type="button" disabled={controlsDisabled || Boolean(problem)} onClick={submitStart} title={problem ?? 'Start the server briefing'}>{starting ? 'Starting…' : 'Start'} <LobbyIcon name="play" /></button>}
-                <p className="lobby-live-status" role="status">{isHost ? problem ?? 'Ready. Start assigns these roles to all participants.' : 'The host assigns roles when the room starts.'} {members.length} of {room.capacity} players ({room.members.filter((member) => member.connected).length} active; 3 to {room.capacity} can play).</p>
+                <p className="lobby-live-status" role="status">{isHost ? `${problem ?? 'Ready to start.'} ` : ''}{members.length} of {room.capacity} players.</p>
                 {(error || notice) && <p role={error ? 'alert' : 'status'}>{error || notice}</p>}
                 <button className="room-text-button" type="button" disabled={controlsDisabled} onClick={showSummaryPreview}>Summary demo preview</button>
-                <p id="room-context"><span>Brief:</span> {SCENARIO_BRIEF.title} (T01) is loaded automatically for everyone in the room.</p>
             </footer>
         </div>
     </MotionConfig>}

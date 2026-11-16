@@ -10,6 +10,9 @@ import sqlite3
 from threading import Lock
 from typing import Literal
 from uuid import UUID
+import time
+
+from . import timing
 
 
 MAX_TEXT_CHARACTERS = 500
@@ -134,6 +137,7 @@ class NarrationService:
         return await asyncio.shield(entry.task)
 
     async def _generate(self, entry: _Entry) -> MediaResult:
+        started = time.monotonic()
         try:
             if entry.voice:
                 audio = await asyncio.to_thread(self._synthesizer, entry.result.text, entry.voice)
@@ -146,6 +150,8 @@ class NarrationService:
         except Exception:
             # Provider exceptions can contain keys, response bodies, or paths.
             entry.result = MediaResult("failed", entry.result.text, "Narration unavailable")
+        timing.log("speech", mode="file", voice=entry.voice, characters=len(entry.result.text),
+                   seconds=round(time.monotonic() - started, 2), ok=entry.result.status == "ready")
         return entry.result
 
     async def stream(self, room_id: UUID, narration_id: UUID, text: str, voice: str | None = None) -> AsyncIterator[bytes]:
@@ -186,9 +192,14 @@ class NarrationService:
                 entry.chunks.append(chunk)
                 entry.changed.notify_all()
 
+        started = time.monotonic()
+        first: list[float] = []
+
         def pump() -> None:
             total = 0
             for chunk in self._streamer(entry.result.text, entry.voice):
+                if not first:
+                    first.append(round(time.monotonic() - started, 2))
                 total += len(chunk)
                 if total > MAX_AUDIO_BYTES:
                     raise ValueError("Audio too large")
@@ -207,6 +218,9 @@ class NarrationService:
             async with entry.changed:
                 entry.stream_ended = True
                 entry.changed.notify_all()
+        timing.log("speech", mode="stream", voice=entry.voice, characters=len(entry.result.text),
+                   first_seconds=first[0] if first else None, seconds=round(time.monotonic() - started, 2),
+                   ok=entry.result.status == "ready")
         return entry.result
 
     def audio(self, room_id: UUID, narration_id: UUID) -> bytes:

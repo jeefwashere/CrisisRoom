@@ -4,7 +4,7 @@ import sqlite3
 import tempfile
 import unittest
 from playtest.speech import CreditBudget
-from playtest.vertex import DollarBudget
+from backend.app.agent_text import SpendLedger
 
 
 class BudgetIncreaseTests(unittest.TestCase):
@@ -27,18 +27,18 @@ class BudgetIncreaseTests(unittest.TestCase):
         with closing(sqlite3.connect(path)) as db:
             self.assertEqual(db.execute('SELECT operation,amount FROM credits').fetchall(), [('tts', 5382)])
 
-    def test_vertex_explicit_increase_preserves_calls_and_usage(self):
-        path = self.root/'vertex.sqlite'
-        original = DollarBudget(path, 200)
-        ident = original.reserve()
+    def test_agent_explicit_increase_preserves_calls_and_usage(self):
+        path = self.root/'agents.sqlite'
+        original = SpendLedger(path, 200)
+        ident = original.reserve(5)
         original.record(ident, {'totalTokenCount': 14})
-        restarted = DollarBudget(path, 2000)
+        restarted = SpendLedger(path, 2000)
         self.assertEqual(restarted.status()['cap_usd'], 2)
         restarted.authorize_increase(2000)
         self.assertEqual(restarted.status()['reserved_usd'], .05)
         self.assertEqual(restarted.status()['remaining_usd'], 19.95)
-        self.assertEqual(DollarBudget(path, 2000).status()['cap_usd'], 20)
-        self.assertEqual(DollarBudget(path, 100).status()['cap_usd'], 1)
+        self.assertEqual(SpendLedger(path, 2000).status()['cap_usd'], 20)
+        self.assertEqual(SpendLedger(path, 100).status()['cap_usd'], 1)
         with closing(sqlite3.connect(path)) as db:
             row = db.execute('SELECT id,cents,usage FROM calls').fetchone()
             self.assertEqual(row, (ident, 5, '{"totalTokenCount": 14}'))
@@ -55,25 +55,25 @@ class BudgetIncreaseTests(unittest.TestCase):
         budget.authorize_increase(10000)
         self.assertEqual(budget.status()['cap'], 10000)
 
-    def test_vertex_invalid_or_lower_increases_do_not_mutate(self):
-        path = self.root/'vertex.sqlite'
-        budget = DollarBudget(path, 200)
-        for invalid in (199, -1, 2001, 2000.0, True, '2000', None):
+    def test_agent_invalid_or_lower_increases_do_not_mutate(self):
+        path = self.root/'agents.sqlite'
+        budget = SpendLedger(path, 200)
+        for invalid in (199, -1, 5001, 2000.0, True, '2000', None):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 budget.authorize_increase(invalid)
         self.assertEqual(budget.status()['cap_usd'], 2)
         with self.assertRaises(ValueError):
-            DollarBudget(self.root/'invalid.sqlite', 2001)
+            SpendLedger(self.root/'invalid.sqlite', 5001)
         budget.authorize_increase(200)
         self.assertEqual(budget.status()['cap_usd'], 2)
 
     def test_stale_instances_cannot_lower_persisted_authorization(self):
-        speech_path, vertex_path = self.root/'speech.sqlite', self.root/'vertex.sqlite'
+        speech_path, agent_path = self.root/'speech.sqlite', self.root/'agents.sqlite'
         first, stale = CreditBudget(speech_path, 10000), CreditBudget(speech_path, 10000)
         first.authorize_increase(30000)
         with self.assertRaises(ValueError):
             stale.authorize_increase(20000)
-        first, stale = DollarBudget(vertex_path, 200), DollarBudget(vertex_path, 200)
+        first, stale = SpendLedger(agent_path, 200), SpendLedger(agent_path, 200)
         first.authorize_increase(2000)
         with self.assertRaises(ValueError):
             stale.authorize_increase(1000)
@@ -94,18 +94,18 @@ class BudgetIncreaseTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT operation,amount FROM credits').fetchall(),
                              [('before',5),('after',50000),('continued',1)])
 
-    def test_explicit_unlimited_vertex_keeps_every_call(self):
-        path=self.root/'vertex.sqlite'
-        budget=DollarBudget(path,5)
-        first=budget.reserve();budget.record(first,{'totalTokenCount':14})
+    def test_explicit_unlimited_agent_keeps_every_call(self):
+        path=self.root/'agents.sqlite'
+        budget=SpendLedger(path,5)
+        first=budget.reserve(5);budget.record(first,{'totalTokenCount':14})
         budget.authorize_unlimited()
-        for _ in range(3):budget.reserve()
-        restarted=DollarBudget(path,0)
+        for _ in range(3):budget.reserve(5)
+        restarted=SpendLedger(path,0)
         self.assertTrue(restarted.status()['unlimited'])
         self.assertIsNone(restarted.status()['cap_usd'])
         self.assertIsNone(restarted.status()['remaining_usd'])
         self.assertEqual(restarted.status()['attempts'],4)
-        restarted.reserve()
+        restarted.reserve(5)
         with closing(sqlite3.connect(path)) as db:
             self.assertEqual(db.execute('SELECT usage FROM calls WHERE id=?',(first,)).fetchone()[0],
                              '{"totalTokenCount": 14}')

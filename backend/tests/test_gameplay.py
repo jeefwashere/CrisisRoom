@@ -14,8 +14,8 @@ from backend.app.rooms import Rooms
 from backend.app.scenarios import ScenarioCatalog
 from backend.app import simulation as sim
 
-# Automated tests never make paid Vertex calls; tests inject fakes explicitly.
-os.environ["BOARDROOM_VERTEX_ENABLED"] = "false"
+# Automated tests never make paid agent calls; tests inject fakes explicitly.
+os.environ["BOARDROOM_AGENTS_ENABLED"] = "false"
 
 
 def command(**fields):

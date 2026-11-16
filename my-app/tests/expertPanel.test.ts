@@ -7,7 +7,7 @@ import {
 import type { ExpertPanel, ExpertTake } from '../src/services/facilitation.ts'
 
 function take(kind: ExpertTake['kind'], fields: Partial<ExpertTake> = {}): ExpertTake {
-    return { kind, label: kind, status: 'ready', text: `${kind} take`, source: 'vertex', speech_id: `speech-${kind}`, error: null, ...fields }
+    return { kind, label: kind, status: 'ready', text: `${kind} take`, source: 'agent', speech_id: `speech-${kind}`, error: null, ...fields }
 }
 
 function panel(experts: ExpertTake[], fields: Partial<ExpertPanel> = {}): ExpertPanel {
@@ -74,7 +74,7 @@ test('personas come from the advisers list with a built in fallback', () => {
 })
 
 test('the source label reflects live and offline takes', () => {
-    assert.equal(panelSourceLabel(normalizeExperts(panel([take('facilitator'), take('it')]))), 'Live Gemini (Vertex AI) · voiced by ElevenLabs')
+    assert.equal(panelSourceLabel(normalizeExperts(panel([take('facilitator'), take('it')]))), 'Live ElevenLabs agents (GPT Terra) · voiced by ElevenLabs')
     assert.equal(panelSourceLabel(normalizeExperts(panel([take('facilitator', { source: 'offline' })]))), 'Offline reply')
     assert.match(panelSourceLabel(normalizeExperts(panel([take('facilitator'), take('it', { source: 'offline' })]))), /some replies offline/)
     assert.equal(panelSourceLabel(normalizeExperts(null)), '')

@@ -177,14 +177,15 @@ class CustomTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.view())['phase'], 'speaking')
 
 
-class Vertex:
+class Agents:
     configured = True
 
     def __init__(self, reply=None):
         self.prompts, self.reply = [], reply if reply is not None else {'outcome': 'O2'}
 
-    async def json(self, prompt, timeout=30, max_output_tokens=2048):
+    async def json(self, prompt, timeout=30, max_output_tokens=2048, temperature=0.4):
         self.prompts.append(prompt)
+        self.temperatures = getattr(self, 'temperatures', []) + [temperature]
         if isinstance(self.reply, Exception):
             raise self.reply
         return self.reply
@@ -198,11 +199,11 @@ class VotingCustomTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         await fixture.GameplayTests.asyncSetUp(self)
-        self.use(Vertex())
+        self.use(Agents())
 
-    def use(self, vertex):
-        self.provider, self.vertex = Provider(), vertex
-        self.app = create_app(rooms=self.rooms, inference_provider=self.provider, vertex_provider=vertex)
+    def use(self, agents):
+        self.provider, self.agents = Provider(), agents
+        self.app = create_app(rooms=self.rooms, inference_provider=self.provider, agent_provider=agents)
         self.resolver = self.app.state.resolver
 
     async def voting_with_custom(self):
@@ -217,7 +218,7 @@ class VotingCustomTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((custom['label'], custom['member_id']), (self.TEXT, self.ids[2]))
         return voting, prepared, custom['option_id']
 
-    async def test_custom_option_added_while_voting_wins_and_resolves_through_vertex(self):
+    async def test_custom_option_added_while_voting_wins_and_resolves_through_agents(self):
         voting, prepared, custom = await self.voting_with_custom()
         other = await self.view(0)
         self.assertIn(custom, [item['option_id'] for item in other['game']['current_node']['options']])
@@ -236,25 +237,25 @@ class VotingCustomTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(record['outcome_id'], allowed[1])
         self.assertEqual(record['vote_counts'][custom], 2)
         self.assertEqual(record['vote_counts'][prepared], 1)
-        # The resolution went to Vertex, never the hosted fallback (the opening briefing, started at game start, may use it).
+        # The resolution went to the agents, never the hosted fallback (the opening briefing, started at game start, may use it).
         self.assertEqual([item for item in self.provider.prompts if self.TEXT in item], [])
-        (prompt,) = [item for item in self.vertex.prompts if self.TEXT in item]
+        (prompt,) = [item for item in self.agents.prompts if self.TEXT in item]
         self.assertIn(self.TEXT, prompt)
-        self.assertEqual(self.resolver.traces[UUID(record['ai_job_id'])]['source'], 'vertex')
+        self.assertEqual(self.resolver.traces[UUID(record['ai_job_id'])]['source'], 'agent')
 
-    async def test_invalid_vertex_output_falls_back_to_hosted_resolver(self):
+    async def test_invalid_agent_output_falls_back_to_hosted_resolver(self):
         for reply in ({'outcome': 'invented'}, {'outcome': 'O1', 'why': 'extra'}, RuntimeError('private detail')):
             with self.subTest(reply=reply):
                 self.clients, self.ids = [], []
                 self.rooms = fixture.Rooms(fixture.ScenarioCatalog(), self.clock)
-                self.use(Vertex(reply))
+                self.use(Agents(reply))
                 voting, _, custom = await self.voting_with_custom()
                 for index in (0, 2):
                     await self.action(index, voting, 'vote', option_id=custom)
                 await self.advance(60)
                 result = await self.finish()
                 self.assertEqual(result['game']['last_result']['outcome_id'], 'targeted_containment')
-                self.assertEqual(len(self.vertex.prompts), 1)
+                self.assertEqual(len(self.agents.prompts), 1)
                 self.assertTrue(self.provider.prompts)
                 self.assertEqual(self.resolver.traces[UUID(result['game']['last_result']['ai_job_id'])]['source'], 'hosted')
 

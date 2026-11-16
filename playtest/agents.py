@@ -1,11 +1,11 @@
-"""Bounded jobs against Vertex Flash with LOW reasoning; never owns game state."""
+"""Bounded jobs against the ElevenLabs agents (gpt-6.1-terra); never owns game state."""
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import json
 import threading
 import time
 import uuid
-from .vertex import VertexModels
+from .agent_models import AgentModels
 from .engine import require, bounded_text
 from .references import References
 
@@ -28,8 +28,8 @@ class Agents:
     def __init__(self, engine, provider=None):
         self.engine = engine
         self.references = References()
-        self.provider = provider or VertexModels()
-        self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix='vertex-model')
+        self.provider = provider or AgentModels()
+        self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix='agent-model')
         self.stop = threading.Event()
         self.status = {'online': False, 'note': 'Status not checked yet'}
         self.last_health = 0
@@ -66,7 +66,7 @@ class Agents:
             result = p.request('/api/status')
             self.status = {k: result.get(k) for k in ('online', 'verified', 'provider', 'model', 'thinking_level', 'name', 'note', 'budget')}
         except Exception:
-            self.status = {'online': False, 'note': 'Vertex unavailable or credentials not configured'}
+            self.status = {'online': False, 'note': 'ElevenLabs agents unavailable or credentials not configured'}
 
     def request(self, token, kind, data):
         with self.engine.lock:
@@ -225,7 +225,7 @@ class Agents:
                     all(isinstance(i, str) and i in evidence for i in ids), 'Invalid debrief references')
             suggestion = {'kind': kind, 'text': '\n\n'.join(evidence[i] for i in dict.fromkeys(ids)),
                           'evidence_ids': ids,
-                          'note': 'Gemini selected authored reflections linked to committed history. The full decision record remains authoritative.'}
+                          'note': 'The agent selected authored reflections linked to committed history. The full decision record remains authoritative.'}
             r['feedback'] = suggestion
         else:
             if r['node'] != context['node'] or r['round'] != context['round'] or (r['phase'] == 'ended' and not context.get('review')):
@@ -236,7 +236,7 @@ class Agents:
             evidence = {x['id']: x['text'] for x in context['evidence']}
             require(all(i in evidence for i in ids), 'Unknown evidence reference')
             suggestion = {'kind': kind, 'text': '\n'.join(evidence[i] for i in ids) or 'The released evidence does not answer that. Record it as unknown.',
-                          'evidence_ids': ids, 'note': 'Gemini selected released evidence. Wording is authored, not invented.'}
+                          'evidence_ids': ids, 'note': 'The agent selected released evidence. Wording is authored, not invented.'}
         suggestion.update(id=jid, round=context['round'], at=e.clock(), question=job.get('question', ''), review=context.get('review', False))
         r['suggestions'].append(suggestion)
         e.event(r, 'model_result', job=jid, agent_kind=kind)

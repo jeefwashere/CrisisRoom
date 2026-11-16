@@ -14,11 +14,11 @@ def main():
     parser.add_argument('--live',action='store_true')
     parser.add_argument('--url',default='http://127.0.0.1:8788')
     args=parser.parse_args()
-    if not args.live:parser.error('--live is required for Gemini and ElevenLabs calls')
+    if not args.live:parser.error('--live is required for ElevenLabs agent and speech calls')
     members=[MeetingClient(args.url) for _ in range(3)];host=members[0]
     result=host.request('/api/roundtable/join',{'name':'Round 1 CEO','flow':'board_round1'});host.token=result['token'];code=result['code']
     for member,name in zip(members[1:],['Round 1 recovery member','Round 1 community member']):member.join(name,code)
-    report={'room':code,'method':'Three HTTP memberships, scripted typed discussion, real Gemma retrieval, Gemini and streamed ElevenLabs PCM. No browser listening. No private rounds or scoring.','streams':[]}
+    report={'room':code,'method':'Three HTTP memberships, scripted typed discussion, real Gemma retrieval, ElevenLabs agents and streamed ElevenLabs PCM. No browser listening. No private rounds or scoring.','streams':[]}
     out=Path('playtest/evaluations/round-one.json')
     def save():out.write_text(json.dumps(report,indent=2)+'\n')
     def states():return [m.state() for m in members]

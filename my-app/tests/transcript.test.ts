@@ -73,8 +73,10 @@ test('durations come from the audio when known, otherwise from the speaking pace
     assert.equal(silentHoldMs('a'.repeat(300), 16, 900, 4000), 4000)
 })
 
-test('captions are on unless this tab stored an explicit off', () => {
-    assert.equal(captionsPreference(null), true)
+test('captions stay hidden unless this tab stored an explicit on', () => {
+    assert.equal(captionsPreference(null), false)
+    assert.equal(captionsPreference(undefined), false)
+    assert.equal(captionsPreference(''), false)
     assert.equal(captionsPreference('1'), true)
     assert.equal(captionsPreference('0'), false)
 })
@@ -109,7 +111,7 @@ test('participant recordings update one caption line when recognition is reviewe
 })
 
 function message(id: string, fields: Partial<PrivateMessage> = {}): PrivateMessage {
-    return { message_id: id, author: 'agent', kind: 'question', round: 2, step: 1, text: `Line ${id}`, status: 'ready', source: 'vertex', speech_id: `sp-${id}`, at: '', ...fields }
+    return { message_id: id, author: 'agent', kind: 'question', round: 2, step: 1, text: `Line ${id}`, status: 'ready', source: 'agent', speech_id: `sp-${id}`, at: '', ...fields }
 }
 
 test('private messages map to coach, examiner, answer and note lines', () => {

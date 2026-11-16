@@ -1,7 +1,8 @@
 /**
  * Boardroom model downloads, shared and started early. The 3D scene only mounts when the game begins, so the lobby
  * and setup screens call `preloadBoardroomAssets()` to fetch every model while players are still joining; the scene
- * then parses bytes that are already in memory. No three.js here, so importing this costs nothing.
+ * then parses bytes that are already in memory. No three.js is imported here, so importing this costs nothing; the
+ * scene code itself is only fetched (as its own chunk) once a preload asks for it.
  */
 
 export const MODELS = `${import.meta.env.BASE_URL}models/`
@@ -15,18 +16,33 @@ export const PROP_WORDS = ['table', 'chair', 'credenza', 'water-service', 'plant
 export type PropWord = (typeof PROP_WORDS)[number]
 
 const downloads = new Map<string, Promise<ArrayBuffer>>()
+/** Downloads still in flight that the picture needs first: the characters, their clips, the room and the skyline. */
+const urgent = new Set<Promise<unknown>>()
 
-/** One download per URL for the page's lifetime; a failed one is forgotten so the next call retries. */
-export function fetchAsset(url: string): Promise<ArrayBuffer> {
-    let download = downloads.get(url)
-    if (!download) {
-        download = fetch(url).then((response) => {
-            if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`)
-            return response.arrayBuffer()
-        })
-        download.catch(() => downloads.delete(url))
-        downloads.set(url, download)
+async function urgentDone() {
+    while (urgent.size > 0) await Promise.allSettled([...urgent])
+}
+
+/**
+ * One download per URL for the page's lifetime; a failed one is forgotten so the next call retries. A `'low'`
+ * download (the props) starts once the urgent ones have arrived, so on a slow link the people and the room are not
+ * held back by the furniture; simple stand in furniture shows until then.
+ */
+export function fetchAsset(url: string, priority: 'auto' | 'low' = 'auto'): Promise<ArrayBuffer> {
+    const known = downloads.get(url)
+    if (known) return known
+    const request = () => fetch(url, { priority }).then((response) => {
+        if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`)
+        return response.arrayBuffer()
+    })
+    const download = priority === 'low' ? urgentDone().then(request) : request()
+    if (priority !== 'low') {
+        const settled = () => { urgent.delete(download) }
+        urgent.add(download)
+        download.then(settled, settled)
     }
+    download.catch(() => downloads.delete(url))
+    downloads.set(url, download)
     return download
 }
 
@@ -46,6 +62,26 @@ export function propUrl(entries: Manifest['models'], word: string): string | nul
     return entry ? `${MODELS}props/${entry.file.split('/').pop()}` : null
 }
 
+export type SkyInfo = { file: string; u_facing_minus_x?: number; three_background_rotation_y_rad_suggested?: number }
+export type RoomInfo = { sky?: string | SkyInfo; emissive_boost?: number }
+let roomInfo: Promise<RoomInfo | null> | null = null
+
+/** room.json, or null when it is missing (the scene keeps its placeholder room). */
+export function roomManifest(): Promise<RoomInfo | null> {
+    roomInfo ??= fetch(`${MODELS}room/room.json`)
+        .then((response) => response.ok && response.headers.get('content-type')?.includes('json') ? response.json() as Promise<RoomInfo> : null)
+        .catch(() => null)
+    return roomInfo
+}
+
+/** The skyline panorama named by room.json (a repository path or a path under public/), with its URL. */
+export function roomSky(info: RoomInfo): (SkyInfo & { url: string }) | null {
+    const sky: SkyInfo | null = typeof info.sky === 'string' ? { file: info.sky } : info.sky ?? null
+    if (!sky) return null
+    const relative = sky.file.includes('public/') ? sky.file.split('public/')[1] : sky.file.replace(/^\//, '')
+    return { ...sky, url: `${import.meta.env.BASE_URL}${relative}` }
+}
+
 let started = false
 const swallow = (download: Promise<unknown>) => { download.catch(() => undefined) }
 
@@ -60,11 +96,20 @@ export function preloadBoardroomAssets(seats = 3): void {
     started = true
     swallow(fetchAsset(`${MODELS}characters/animations.glb`))
     swallow(fetchAsset(`${MODELS}room/room.glb`))
+    void roomManifest().then((info) => {
+        const sky = info && roomSky(info)
+        if (sky) swallow(fetchAsset(sky.url))
+    })
     void propManifest().then((found) => {
         if (!found) return
         for (const word of PROP_WORDS) {
             const url = propUrl(found.models, word)
-            if (url) swallow(fetchAsset(url))
+            if (url) swallow(fetchAsset(url, 'low'))
         }
     })
+    // The scene code (three.js, about 250 KB compressed) once the page is idle, so opening the 3D stage does not wait
+    // for it to download and compile.
+    const loadScene = () => { swallow(import('./Boardroom')) }
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(loadScene, { timeout: 3000 })
+    else setTimeout(loadScene, 300)
 }

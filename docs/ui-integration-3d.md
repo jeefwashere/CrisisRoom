@@ -10,7 +10,7 @@ transcript panel and all the hooks.** Exact payloads are in `my-app/src/services
 
 | Phase (`room.phase`) | What happens | Who talks (drive avatar animation) |
 |---|---|---|
-| `briefing` | AI opening briefing, Gemini text + ElevenLabs voice | Preparation agent |
+| `briefing` | AI opening briefing, ElevenLabs agent text + ElevenLabs voice | Preparation agent |
 | `speaking` | **9 turns**: Alex → Morgan → Sam, three times round (`speaking_rounds: 3`), 30 s each | `game.active_speaker_id` |
 | `discussion` (`game.discussion_mode === 'experts'`) | Expert panel: IT and security, Operations and community services, Governance and finance | the expert whose audio is playing |
 | `individual_decision` | Each member writes one decision (typed or dictated), prompt pinned in the chat drawer | nobody |
@@ -103,20 +103,20 @@ Rounds 2 and 3.
 
 `GET /api/rooms/{id}/private-session` → `{round, stage, agent, messages[], expecting, busy, clip, card, assessment, retryable}`.
 
-* `stage`: `coaching` → `card` (Gemini is recording the card, show "Crisis coach is recording your response card…")
-  → `assessment` → `complete`. There is no card review screen: the card is drafted live by Gemini from your three
+* `stage`: `coaching` → `card` (the agent is recording the card, show "Crisis coach is recording your response card…")
+  → `assessment` → `complete`. There is no card review screen: the card is drafted live by the agent from your three
   coaching answers, confirmed automatically, and Round 3 starts.
 * `agent.role`: `coach` (Round 2, label "Crisis coach") or `examiner` (Round 3, "Crisis coach · examiner").
-* `messages`: twist, questions, Gemini acknowledgements, updates, transition, your answers. Agent messages carry a
+* `messages`: twist, questions, agent acknowledgements, updates, transition, your answers. Agent messages carry a
   `speech_id`; put each into the transcript as its audio plays.
 * `expecting`: the question waiting for an answer, null while the coach is speaking or busy.
-* `assessment`: three stages 30/40/30 (total 100), scored by Gemini with quote checked evidence. `feedback`
+* `assessment`: three stages 30/40/30 (total 100), scored by the agent with quote checked evidence. `feedback`
   (per criterion reasons and quotes) is released only when `stage === 'complete'`.
 * Stage strip for the 3D scene: round pill, private badge, countdown, and in Round 3 the score and three stage chips.
 
 ## 8. What is fixed text vs live AI
 
-Live Gemini: opening briefing, expert takes, coach acknowledgements, the response card, Round 3 scores and reasons.
+Live ElevenLabs agents: opening briefing, expert takes, coach acknowledgements, the response card, Round 3 scores and reasons.
 Fixed by design (beta mode, matches the prerecorded answers): the coach's questions, twist, updates and the
 "Your preparation is complete…" transition. Voices: ElevenLabs, generated on demand through the speech endpoints.
 
@@ -180,3 +180,20 @@ heads, buttons, notices, the transcript, the private answer box and the control 
 plays only from the existing hooks. The scene (`Boardroom.ts`, `SeatTags.ts`) is ported from
 `game-ui/src/scene` on `arjun/game-ui-3d` and loads on demand, so the call view never downloads three.js. Models
 are in `my-app/public/models` (3 characters, the baked room and the props) and `my-app/public/textures/sky`.
+
+Faces, hands and loading (X53 and X56, Nov 16 2026):
+
+* Speaking faces: every character has the morph targets `Blink_L`, `Blink_R`, `Smile`, `Frown`, `BrowRaise`,
+  `MouthOpen` and `MouthRound`. `features/game/voiceMeter.ts` listens to the voice that is playing (it never changes
+  how the voice plays) and `features/boardroom3d/faceExpressions.ts` turns its loudness and brightness into the mouth
+  of whoever is talking. Where the browser cannot meter a voice, the mouth follows a built in speech rhythm instead.
+  An agent talking at the hub moves no character's mouth.
+* Hands: the right hand rests on a mouse on the table and the left hand on the lap under the table, set in
+  `Boardroom.ts` after the seated clip each frame.
+* The models are meshopt compressed and quantized, and the room and skyline textures are WebP. After a character is
+  exported again from Blender, run `node tools/optimize-models.mjs <folder with the originals>` in `my-app`; the loader
+  also reads an uncompressed file, so a fresh export works before it is optimized.
+* `preloadBoardroomAssets(seats)` (`features/boardroom3d/assets.ts`) starts the downloads in the lobby and again at
+  Start: characters, clips, room and skyline first, props after them, and the scene code when the page is idle.
+* The loader writes User Timing marks named `board3d:*` (construct, first frame, each character, room, props), which
+  show in the browser's performance panel.

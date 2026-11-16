@@ -12,7 +12,7 @@ export type Opening = {
     status: JobStatus
     title: string
     text: string
-    source: 'vertex' | 'hosted' | 'offline' | null
+    source: 'agent' | 'hosted' | 'offline' | null
     speech_id: string | null
     error: string | null
 }
@@ -28,7 +28,7 @@ export type Consultation = {
     question: string
     status: JobStatus
     reply: string | null
-    source: 'vertex' | 'hosted' | 'offline' | null
+    source: 'agent' | 'hosted' | 'offline' | null
     speech_id: string | null
     error: string | null
     at: string
@@ -46,7 +46,7 @@ export type ExpertTake = {
     label: string
     status: JobStatus
     text: string
-    source: 'vertex' | 'hosted' | 'offline' | null
+    source: 'agent' | 'hosted' | 'offline' | null
     speech_id: string | null
     error: string | null
 }
@@ -79,7 +79,7 @@ export type PrivateMessage = {
     step: number | null
     text: string
     status: JobStatus
-    source: 'vertex' | 'hosted' | 'offline' | 'canonical' | null
+    source: 'agent' | 'hosted' | 'offline' | 'canonical' | null
     speech_id: string | null
     at: string
     /** Member answers only: true when the answer came from a saved (prerecorded) clip. */
@@ -141,7 +141,7 @@ export type PrivateSession = {
     retryable: boolean
 }
 
-/** A Vertex written draft reply; nothing is submitted until the member's own client commits it. */
+/** An agent written draft reply; nothing is submitted until the member's own client commits it. */
 export type AiReply = { reply_id: string; speech_id: string; mode: 'turn' | 'private' | 'decision'; text: string; source: string }
 
 export type SpeechStatus = { status: 'ready' | 'disabled' | 'failed' | 'pending'; error?: string | null }

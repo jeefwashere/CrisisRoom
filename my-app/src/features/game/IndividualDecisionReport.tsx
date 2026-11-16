@@ -23,7 +23,7 @@ export default function IndividualDecisionReport({ decisions, ownText, selfId, e
         </header>
         <div className="decision-report-block">
             <h4>Your decision</h4>
-            {ownText ? <p className="decision-text">{ownText}</p> : <p className="vote-note">You did not submit a decision this round.</p>}
+            {ownText ? <p className="decision-text">{ownText}</p> : <p className="vote-note">No decision submitted.</p>}
         </div>
         {rows.length > 0 && <div className="decision-board">
             <p className="vote-eyebrow">{progress.done} of {progress.total} board members submitted</p>

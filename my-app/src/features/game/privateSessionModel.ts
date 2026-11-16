@@ -6,7 +6,7 @@ import type {
 import type { PrivateProgress, PrivateProgressStage } from '../../services/rooms.ts'
 import { botChoice, currentQuestion, normalizeQuiz, quizFinished, quizStatusText } from './quizModel.ts'
 
-export const PRIVATE_POLL_MS = 1200
+export const PRIVATE_POLL_MS = 500
 export const ANSWER_LIMIT = 1200
 export const CARD_FIELD_LIMIT = 600
 /** What the coach writes for a detail the member has not settled yet. */
@@ -32,7 +32,7 @@ export const ASSESSMENT_STAGES: readonly { step: number; max: number; title: str
 
 const STAGES: readonly PrivateStage[] = ['coaching', 'card', 'assessment', 'complete']
 const KINDS: readonly PrivateMessage['kind'][] = ['twist', 'question', 'ack', 'update', 'transition', 'answer', 'result']
-const SOURCES: readonly NonNullable<PrivateMessage['source']>[] = ['vertex', 'hosted', 'offline', 'canonical']
+const SOURCES: readonly NonNullable<PrivateMessage['source']>[] = ['agent', 'hosted', 'offline', 'canonical']
 const STAGE_STATUSES: readonly AssessmentStage['status'][] = ['waiting', 'scoring', 'scored', 'failed']
 
 function record(value: unknown): value is Record<string, unknown> {

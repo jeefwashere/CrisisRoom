@@ -88,8 +88,8 @@ function QuizCard({ quiz, question, blocked, onChoose }: {
         <div className="private-quiz-foot" role="status">
             {closed
                 ? <p className={`private-quiz-result${question.timed_out ? ' is-timed-out' : ''}${outcome ? ` is-${outcome}` : ''}`}><strong>{earnedText(question)}</strong><span>{totalText(quiz)}</span></p>
-                : expired ? <p className="private-hint">Time is up. The examiner is closing this question…</p>
-                : <p className="private-hint">Choose one answer. Your choice is final.</p>}
+                : expired ? <p className="private-hint">Time is up.</p>
+                : <p className="private-hint">Your choice is final.</p>}
         </div>
     </section>
 }
@@ -138,14 +138,14 @@ export function QuizStage({ quiz, blocked, agentName, retryable, onChoose, onRet
     if (quiz.status === 'generating') return <div className="private-quiz-stage">
         <div className="private-quiz opening-shimmer private-quiz-loading" aria-busy="true">
             <p className="private-eyebrow">Round 3 · Assessment</p>
-            <p className="opening-shimmer-label" role="status">{agentName} is writing your five multiple choice questions…</p>
+            <p className="opening-shimmer-label" role="status">{agentName} is writing your questions…</p>
             <span /><span /><span />
         </div>
     </div>
     if (quiz.status === 'failed') return <div className="private-quiz-stage">
         <div className="private-quiz private-retry" role="alert">
             <p className="private-eyebrow">Round 3 · Assessment</p>
-            <p>{agentName} could not prepare your assessment questions. Your earlier answers are kept.</p>
+            <p>{agentName} could not prepare your questions.</p>
             {retryable && <button type="button" className="opening-play" disabled={blocked} onClick={() => void onRetry()}>Retry</button>}
         </div>
     </div>
@@ -168,7 +168,7 @@ export function QuizResults({ quiz, heading = 'Round 3 · Assessment complete' }
             {questions.map((item) => <article key={item.step} className="private-feedback-stage private-review">
                 <h4>{item.heading}</h4>
                 <p className="private-review-question">{item.question}</p>
-                {item.timedOut && <p className="private-note">Time ran out before you chose, so this question earned 0 points.</p>}
+                {item.timedOut && <p className="private-note">Time ran out: 0 points.</p>}
                 <ul>
                     {item.choices.map((choice) => <li key={choice.choiceId} className={`private-criterion private-review-choice${choice.chosen ? ' is-chosen' : ''}${choice.best ? ' is-best' : ''}`}>
                         <div className="private-criterion-head">
@@ -181,6 +181,6 @@ export function QuizResults({ quiz, heading = 'Round 3 · Assessment complete' }
                 </ul>
             </article>)}
         </div> : <p className="private-note">No question was answered.</p>}
-        {!released && questions.length > 0 && <p className="private-note">The full review, with every choice's points and reasoning, appears once the assessment is complete.</p>}
+        {!released && questions.length > 0 && <p className="private-note">The full review appears once the assessment is complete.</p>}
     </section>
 }

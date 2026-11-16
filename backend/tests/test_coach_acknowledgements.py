@@ -25,8 +25,8 @@ class CoachAcknowledgementTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_hosted_fallback_normalizes_or_uses_safe_acknowledgement(self):
         service = PrivateSessions.__new__(PrivateSessions)
-        service.vertex = SimpleNamespace(configured=False)
-        service._prompt = lambda *args: "Unused Vertex prompt"
+        service.agents = SimpleNamespace(configured=False)
+        service._prompt = lambda *args: "Unused agent prompt"
         provider = SimpleNamespace(configured=True, run=AsyncMock())
         service.facilitation = SimpleNamespace(provider=provider)
         context = {"own_decision": "Check authority.", "own_private_history": []}

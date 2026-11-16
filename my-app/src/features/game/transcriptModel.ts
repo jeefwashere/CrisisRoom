@@ -114,9 +114,9 @@ export function revealedText(text: string, reveal: Reveal | null, now: number): 
     return cut === -1 ? '' : prefix.slice(0, cut)
 }
 
-/** Captions default to on; only an explicit "0" stored for this tab turns them off. */
+/** Captions default to hidden; only an explicit "1" stored for this tab (the Captions button) shows them. */
 export function captionsPreference(raw: string | null | undefined): boolean {
-    return raw !== '0'
+    return raw === '1'
 }
 
 // Entry builders: stable IDs per spoken line, so repeated renders update one line instead of adding another.

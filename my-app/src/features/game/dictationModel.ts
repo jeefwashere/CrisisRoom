@@ -110,6 +110,29 @@ export function createSpeechReader() {
 
 export const DICTATION_UNAVAILABLE = "Voice input isn't available in this browser; type instead."
 
+/**
+ * Speech needs far less than the browser default: Chrome records a microphone at about 128 kbps, and 32 kbps mono
+ * transcribed identically in testing (Nov 16 2026) while uploading a quarter of the bytes.
+ */
+export const SPEECH_BITS_PER_SECOND = 32_000
+
+/** One voice channel with the browser's echo, noise and level processing, the same in every browser. */
+export const MICROPHONE = { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } as const
+
+/** MediaRecorder settings for speech: the first container this browser can record, at a speech bitrate. */
+export function recorderOptions(isTypeSupported: (type: string) => boolean): { mimeType?: string; audioBitsPerSecond: number } {
+    const mimeType = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find((value) => isTypeSupported(value))
+    return { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: SPEECH_BITS_PER_SECOND }
+}
+
+/** Settles like `work`, or rejects with `message` after `ms`, so a stalled request cannot leave the member waiting forever. */
+export function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(message)), ms)
+        work.then((value) => { clearTimeout(timer); resolve(value) }, (error: unknown) => { clearTimeout(timer); reject(error) })
+    })
+}
+
 /** Inline note for a recognition error; null for errors that simply end listening (silence, a manual stop). */
 export function dictationErrorNote(error: string): string | null {
     if (error === 'no-speech' || error === 'aborted') return null

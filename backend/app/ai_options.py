@@ -1,7 +1,7 @@
 """Agent drafted ballot options. Every state change remains under Rooms.lock.
 
-Each round, when speaking begins (and once more when discussion begins), a
-Vertex Gemini job drafts three ballot options from public information only: the
+Each round, when speaking begins (and once more when discussion begins), an ElevenLabs
+drafter agent job drafts three ballot options from public information only: the
 current node situation and study questions, public facts and documents, the
 attached incident report, the round's contributions, and the node's allowed
 custom outcomes with their authored summaries. Each option carries a server

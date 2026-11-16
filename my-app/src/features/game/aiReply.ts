@@ -1,4 +1,5 @@
 import { facilitationApi } from '../facilitation/facilitationClient'
+import { meterVoice } from './voiceMeter'
 import { trackSpeechStream } from './windowMute'
 
 /** Prefix for an AI reply shared as the speaker's clip (`speaker_clip.clip_id`), followed by its speech ID. */
@@ -20,6 +21,13 @@ export async function generatedSpeechUrl(roomId: string, speechId: string): Prom
 
 export type SpeechPlayer = { player: HTMLAudioElement; dispose: () => void }
 
+/** A player for a generated line, metered so the speaker's 3D character can move its mouth with the voice. */
+function voicePlayer(url: string): HTMLAudioElement {
+    const player = new Audio(url)
+    meterVoice(player)
+    return player
+}
+
 /** True when this browser can play MP3 while it downloads (Media Source Extensions). */
 export function canStreamSpeech(): boolean {
     return typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported('audio/mpeg')
@@ -34,7 +42,7 @@ export function canStreamSpeech(): boolean {
 export async function streamedSpeech(roomId: string, speechId: string): Promise<SpeechPlayer | null> {
     if (!canStreamSpeech()) {
         const url = await generatedSpeechUrl(roomId, speechId)
-        return url ? { player: new Audio(url), dispose: () => URL.revokeObjectURL(url) } : null
+        return url ? { player: voicePlayer(url), dispose: () => URL.revokeObjectURL(url) } : null
     }
     const controller = new AbortController()
     let response: Response
@@ -43,7 +51,7 @@ export async function streamedSpeech(roomId: string, speechId: string): Promise<
     const reader = response.body!.getReader()
     const source = new MediaSource()
     const url = URL.createObjectURL(source)
-    const player = new Audio(url)
+    const player = voicePlayer(url)
     let disposed = false
     source.addEventListener('sourceopen', () => {
         const buffer = source.addSourceBuffer('audio/mpeg')

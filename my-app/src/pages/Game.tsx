@@ -50,14 +50,15 @@ import './GameTheme.css'
 import { preloadBoardroomAssets } from '../features/boardroom3d/assets'
 import { hangUpSound, resumeSound } from '../features/game/windowMute'
 
-const CONTEXT_PHASES = ['reading', 'speaking', 'discussion']
+// The situation text is open while reading; later phases keep it behind its "Situation" toggle.
+const CONTEXT_PHASES = ['reading']
 
 function tabStorage(): Storage | null {
     try { return window.sessionStorage } catch { return null }
 }
 
 function readCaptions(): boolean {
-    try { return captionsPreference(tabStorage()?.getItem(CAPTIONS_STORAGE_KEY)) } catch { return true }
+    try { return captionsPreference(tabStorage()?.getItem(CAPTIONS_STORAGE_KEY)) } catch { return false }
 }
 
 function storeCaptions(on: boolean) {
@@ -91,8 +92,8 @@ function drivesSoloBots(): boolean {
 }
 
 const PRIVATE_ANSWER_COPY = {
-    target: 'Answer your coach', label: 'Your private answer', placeholder: 'Answer your coach (Enter to submit; only your coach sees it)',
-    note: 'Only your crisis coach sees this answer', submit: 'Submit answer', failed: 'Your answer could not be sent. Please try again.',
+    target: 'Answer your coach', label: 'Your private answer', placeholder: 'Answer your coach (Enter to submit)',
+    note: 'Only your coach sees this', submit: 'Submit answer', failed: 'Your answer could not be sent. Please try again.',
     limit: ANSWER_LIMIT, canSubmit: canSubmitAnswer,
 }
 
@@ -155,7 +156,7 @@ function Game({ room, scenarios, error, rename, execute, onViewSummary, chat, le
     const [reportOpen, setReportOpen] = useState(false)
     const closeReport = useCallback(() => setReportOpen(false), [])
     const [muted, toggleMuted] = useWindowMute()
-    // CC: the live transcript panel, on by default and remembered for this tab. Chat replaces it while open.
+    // CC: the live transcript panel, hidden until the player presses Captions; the choice is remembered for this tab. Chat replaces it while open.
     const [captions, setCaptions] = useState(readCaptions)
     const toggleCaptions = useCallback(() => setCaptions((on) => { storeCaptions(!on); return !on }), [])
     const hideCaptions = useCallback(() => { storeCaptions(false); setCaptions(false) }, [])
@@ -286,6 +287,8 @@ function Game({ room, scenarios, error, rename, execute, onViewSummary, chat, le
     if (dictation.listening) talking.add(room.self_member_id)
     // In a private session your saved answer is spoken by your own character.
     if (privatePhase && privateAuto.status === 'playing') talking.add(room.self_member_id)
+    // Round 1: your decision, spoken in your role voice by AI reply, is said by your own character too.
+    if (room.phase === 'individual_decision' && decisionAuto.status === 'playing') talking.add(room.self_member_id)
     const stageSwitch = offersStageSwitch(members.length)
     const show3d = view3d && stageSwitch
     if (show3d && !mounted3d) setMounted3d(true)
@@ -308,7 +311,7 @@ function Game({ room, scenarios, error, rename, execute, onViewSummary, chat, le
         else if (mic.action === 'dictate') dictation.start()
         else if (mic.action === 'stop-dictation') dictation.stop()
     }
-    // AI reply: a Vertex written, ElevenLabs spoken reply for the caller's speaking turn, or for the current private question.
+    // AI reply: an ElevenLabs agent written and spoken reply for the caller's speaking turn, or for the current private question.
     // In a private session the button stays (disabled) between questions so the bar does not jump.
     const decisionPhase = room.phase === 'individual_decision'
     const activeAuto = privatePhase ? privateAuto : decisionPhase ? decisionAuto : auto
@@ -322,7 +325,7 @@ function Game({ room, scenarios, error, rename, execute, onViewSummary, chat, le
             label: activeAuto.status === 'playing' ? 'Stop reply' : activeAuto.status === 'writing' ? 'Writing…' : activeAuto.status === 'saving' ? 'Saving…' : activeAuto.status === 'done' ? 'Reply sent' : 'AI reply',
             live: activeAuto.status === 'playing', disabled: pending || (privatePhase && privateSession.sending) || activeAuto.status === 'writing' || activeAuto.status === 'saving' || activeAuto.status === 'done',
             title: privatePhase ? 'Let the AI write and speak an answer to your coach in your voice, then submit it'
-                : decisionPhase ? (decisionAuto.saved ? 'Let the AI write and speak a new decision for you; it replaces the one recorded' : 'Let the AI write your decision for your role and speak it in your voice (only you hear it), then save it') : 'Let the AI write and speak your turn in your voice (Vertex AI and ElevenLabs), then add it to the transcript',
+                : decisionPhase ? (decisionAuto.saved ? 'Let the AI write and speak a new decision for you; it replaces the one recorded' : 'Let the AI write your decision for your role and speak it in your voice (only you hear it), then save it') : 'Let the AI write and speak your turn in your voice (ElevenLabs agents), then add it to the transcript',
             onClick: () => { if (activeAuto.status === 'playing') activeAuto.stop(); else activeAuto.start() },
         }
     const node = game.current_node
@@ -397,7 +400,7 @@ function Game({ room, scenarios, error, rename, execute, onViewSummary, chat, le
         <TranscriptPanel entries={transcriptEntries} open={transcriptOpen} onClose={hideCaptions} dockRef={setDock} minimized={transcriptMinimized} onToggleMinimized={toggleTranscriptMinimized} />
         <ChatDrawer room={room} scenarios={scenarios} chat={chat} open={chatOpen} onClose={closeChat}
             beforeSend={room.phase === 'speaking' && actions.includes('take_floor') ? () => act(rounds + 'speaker/claim') : undefined}
-            pinned={individual && room.phase === 'individual_decision' ? <div className="game-briefing chat-decision"><p className="chat-decision-from">Facilitator · Round 1</p><DecisionStatusPanel room={room} speaking={decisionAuto.status === 'playing'} saving={decisionAuto.status === 'saving'} caption={decisionAuto.caption} /></div> : undefined}
+            pinned={individual && room.phase === 'individual_decision' ? <div className="game-briefing chat-decision"><DecisionStatusPanel room={room} speaking={decisionAuto.status === 'playing'} saving={decisionAuto.status === 'saving'} caption={decisionAuto.caption} /></div> : undefined}
             decision={individual && room.phase === 'individual_decision' && actions.includes('submit_decision') ? { submit: (text) => act(`rounds/${game.round_id}/decision`, { text }), pending, recorded: game.individual_decisions?.self?.text ?? null, attachDictation }
                 // Private coaching: typed answers go through Chat (the stage keeps only the coach's question; Dictate and AI reply answer by voice).
                 : privateChatAnswer ? { submit: (text) => privateSession.answer(text, false), pending: privateSession.sending || Boolean(privateSession.session?.busy), recorded: null, copy: PRIVATE_ANSWER_COPY }

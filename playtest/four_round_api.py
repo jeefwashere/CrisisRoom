@@ -1,4 +1,4 @@
-"""Gemini private coach/examiner, streamed ElevenLabs speech and fixture playback."""
+"""ElevenLabs agent private coach/examiner, streamed ElevenLabs speech and fixture playback."""
 import asyncio
 import base64
 from copy import deepcopy

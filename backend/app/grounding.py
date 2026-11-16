@@ -1,17 +1,22 @@
-"""Embedding retrieval for AI replies: send the model the scenario passages most relevant to what is being said.
+"""Passage retrieval for AI replies: send the model the scenario passages most relevant to what is being said.
 
 The reply prompt has room for about 2 KB of documents. Without retrieval it takes the opening of each document;
-with Google embeddings (gemini-embedding-001) it takes the passages closest to the speaker's role, the latest
-contributions or the coach's question. Passage vectors are cached for the life of the process, so after the first
-reply only the short query is embedded (about 0.4 seconds). Any failure falls back to the plain documents.
+with retrieval it takes the passages that share the most distinctive words with the speaker's role, the latest
+contributions or the coach's question. The ranking is plain word matching inside this process (rarer words count
+for more): no network call, no cost and no provider. When nothing in the query matches the documents it returns
+None and the caller falls back to the plain documents.
 """
 
-import asyncio
-import hashlib
 import math
+import re
 
 PASSAGE_CHARACTERS = 480
-QUERY_TIMEOUT_SECONDS = 4
+WORD = re.compile(r"[a-z0-9]+(?:'[a-z]+)?")
+# Common words that say nothing about which passage is relevant.
+STOP = frozenset("""a about after all also an and any are as at be been before but by can could did do does for from
+had has have he her his how i if in into is it its may me more most my no not of on one or our out she should so
+some than that the their them then there these they this to up us was we were what when which who why will with
+would you your""".split())
 
 
 def passages(context: dict) -> list[tuple[str, str]]:
@@ -32,42 +37,41 @@ def passages(context: dict) -> list[tuple[str, str]]:
     return found
 
 
-def _unit(vector: list[float]) -> list[float]:
-    norm = math.sqrt(sum(x * x for x in vector)) or 1.0
-    return [x / norm for x in vector]
+def words(text: str) -> list[str]:
+    """Lower case content words: stop words and single characters dropped, a plural s removed."""
+    found = []
+    for word in WORD.findall(text.lower()):
+        word = word.split("'")[0]
+        if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+            word = word[:-1]
+        if len(word) > 1 and word not in STOP:
+            found.append(word)
+    return found
 
 
 class Grounding:
-    def __init__(self, vertex):
-        self.vertex = vertex
-        self.vectors: dict[str, list[float]] = {}
-
-    @staticmethod
-    def _key(text: str) -> str:
-        return hashlib.sha256(text.encode()).hexdigest()
-
     async def select(self, context: dict, query: str, limit: int = 2200) -> list[tuple[str, str]] | None:
         """The most relevant passages within `limit` characters, best first; None when retrieval is unavailable."""
-        if not getattr(self.vertex, "configured", False) or not hasattr(self.vertex, "embeddings") or not query.strip():
-            return None
+        probe = set(words(query[:2000]))
         items = passages(context)
-        if len(items) < 2:
+        if not probe or len(items) < 2:
             return None
-        try:
-            missing = [text for _, text in items if self._key(text) not in self.vectors]
-            jobs = [self.vertex.embeddings([query[:2000]], "RETRIEVAL_QUERY")]
-            if missing:
-                jobs.append(self.vertex.embeddings(missing, "RETRIEVAL_DOCUMENT"))
-            results = await asyncio.wait_for(asyncio.gather(*jobs), QUERY_TIMEOUT_SECONDS)
-        except Exception:
+        counts = [{} for _ in items]
+        for index, (label, text) in enumerate(items):
+            for word in words(f"{label} {text}"):
+                counts[index][word] = counts[index].get(word, 0) + 1
+        # A word found in fewer passages says more about which passage is meant.
+        weight = {word: math.log(1 + len(items) / sum(1 for count in counts if word in count))
+                  for word in probe if any(word in count for count in counts)}
+        if not weight:
             return None
-        for text, vector in zip(missing, results[1] if missing else ()):
-            self.vectors[self._key(text)] = _unit(vector)
-        probe = _unit(results[0][0])
-        ranked = sorted(items, key=lambda item: -sum(a * b for a, b in zip(probe, self.vectors[self._key(item[1])])))
+        scores = [sum(weight[word] * (1 + math.log(count[word])) for word in weight if word in count)
+                  for count in counts]
+        ranked = sorted(range(len(items)), key=lambda index: (-scores[index], index))
         chosen, used = [], 0
-        for label, text in ranked:
-            if used + len(text) > limit:
+        for index in ranked:
+            label, text = items[index]
+            if scores[index] <= 0 or used + len(text) > limit:
                 continue
             chosen.append((label, text))
             used += len(text)

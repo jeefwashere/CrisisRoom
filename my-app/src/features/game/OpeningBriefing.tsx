@@ -69,7 +69,7 @@ export default function OpeningBriefing({ room, finishBriefing, onDismiss, membe
         return () => { alive.current = false; speech.current?.dispose(); speech.current = null }
     }, [])
     const autoSpeechId = opening?.status === 'ready' ? opening.speech_id : null
-    // Live Gemini text is spoken through ElevenLabs as soon as it is ready; no click required.
+    // Live agent text is spoken through ElevenLabs as soon as it is ready; no click required.
     useEffect(() => {
         if (!PLAYS_VOICE || !autoSpeechId || autoStarted.current === autoSpeechId) return
         autoStarted.current = autoSpeechId
@@ -83,7 +83,7 @@ export default function OpeningBriefing({ room, finishBriefing, onDismiss, membe
     // Player events outlive the render that attached them, so they call the latest handlers.
     const handlers = useRef<{ finished: () => Promise<void>; started: (element: HTMLAudioElement) => void } | null>(null)
     // The 3D boardroom lights the table hub while the preparation agent speaks.
-    useReportAgent(playing ? { kind: 'agent', name: 'Preparation agent', role: 'AI agent · opening briefing', accent: null } : null)
+    useReportAgent(playing ? { kind: 'agent', name: 'Preparation agent', role: 'AI agent', accent: null } : null)
     if (!game) return null
 
     const status = error && !opening ? 'unreachable' : opening?.status ?? 'pending'
@@ -119,8 +119,8 @@ export default function OpeningBriefing({ room, finishBriefing, onDismiss, membe
             const prepared = await facilitationApi.prepareSpeech(room.room_id, speechId).catch(() => null)
             if (!alive.current) return
             setVoice({ busy: false, notice: prepared?.status === 'disabled'
-                ? 'Spoken briefing is turned off for this session. The briefing stays readable here.'
-                : prepared?.error || 'The spoken briefing could not be prepared. The text remains available.' })
+                ? 'Voice is off. Open Captions to read the briefing.'
+                : prepared?.error || 'Voice unavailable. Open Captions to read the briefing.' })
             return
         }
         speech.current?.dispose()
@@ -136,7 +136,7 @@ export default function OpeningBriefing({ room, finishBriefing, onDismiss, membe
             speech.current = null
             setPlaying(false)
             setAudio(null)
-            setVoice({ busy: false, notice: 'The spoken briefing stopped early. The full briefing is in the transcript.' })
+            setVoice({ busy: false, notice: 'Voice stopped early. Open Captions to read the briefing.' })
         })
         setAudio(speechId)
         setVoice({ busy: false, notice: '' })
@@ -160,19 +160,18 @@ export default function OpeningBriefing({ room, finishBriefing, onDismiss, membe
         </div>
         <p className="game-visually-hidden" role="status">{status === 'pending' ? 'The preparation agent is preparing the briefing.' : speaking ? 'The preparation agent is speaking. The briefing text is in the live transcript.' : ''}</p>
         <div className="call-stage-main">
-            <CallTile name="Preparation agent" role="AI agent · opening briefing" size="main" talking={speaking} status={agentState} avatar={{ kind: 'orb' }} />
+            <CallTile name="Preparation agent" role="AI agent" size="main" talking={speaking} status={agentState} avatar={{ kind: 'orb' }} />
         </div>
         <MemberStrip members={members} selfId={room.self_member_id} />
 
         <div className="opening-footer call-stage-footer">
             {status === 'ready' && speechId && PLAYS_VOICE && (!audio || blocked) && <button type="button" className="opening-play" disabled={voice.busy} onClick={() => { if (blocked) { void speech.current?.player.play().then(() => setBlocked(false)).catch(() => undefined) } else void playBriefing() }}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-                {voice.busy ? 'Preparing live voice…' : blocked ? 'Tap to hear the briefing' : 'Play briefing'}
+                {voice.busy ? 'Preparing…' : blocked ? 'Tap to hear the briefing' : 'Play briefing'}
             </button>}
-            {blocked && <p className="opening-voice-notice" role="status">The browser blocked autoplay. Tap once to hear the live briefing.</p>}
-            {!PLAYS_VOICE && status === 'ready' && <p className="opening-voice-notice" role="status">The live briefing is playing on the host's screen. This view closes when it ends.</p>}
-            {status === 'failed' && <p className="opening-voice-notice" role="alert">The preparation agent could not prepare an opening briefing{opening?.error ? `: ${opening.error}` : '.'} The public scenario documents remain available.</p>}
-            {status === 'unreachable' && <p className="opening-voice-notice" role="alert">The facilitator service is offline ({error}). Retrying automatically.</p>}
+            {!PLAYS_VOICE && status === 'ready' && <p className="opening-voice-notice" role="status">Sound plays on the host's screen.</p>}
+            {status === 'failed' && <p className="opening-voice-notice" role="alert">Briefing unavailable{opening?.error ? `: ${opening.error}` : '.'}</p>}
+            {status === 'unreachable' && <p className="opening-voice-notice" role="alert">Facilitator offline ({error}). Retrying…</p>}
             {voice.notice && <p className="opening-voice-notice" role="status">{voice.notice}</p>}
         </div>
     </motion.section>

@@ -29,7 +29,7 @@ from .facilitation import Facilitation, IncidentDocuments, RecordedClips
 from .ai_options import AiOptions
 from .prerecorded import load_prerecorded
 from .private_sessions import PrivateSessions
-from .vertex_text import VertexText
+from .agent_text import AgentText
 
 COOKIE_NAME = "boardroom_session"
 SESSION_HEADER = "X-Boardroom-Session"
@@ -42,7 +42,7 @@ def create_app(*, secure_cookie: bool | None = None, allowed_origins: list[str] 
                inference_provider=None, facilitation_service: Facilitation | None = None,
                recorded_clips: RecordedClips | None = None,
                incident_documents: IncidentDocuments | None = None,
-               vertex_provider=None) -> FastAPI:
+               agent_provider=None) -> FastAPI:
     if rooms is None:
         rooms = Rooms(ScenarioCatalog(), clock if clock is not None else time.monotonic)
     catalog = rooms.catalog
@@ -51,16 +51,17 @@ def create_app(*, secure_cookie: bool | None = None, allowed_origins: list[str] 
     feedback = Feedback(rooms, recordings, inference_provider)
     documents = incident_documents if incident_documents is not None else (
         facilitation_service.documents if facilitation_service is not None else IncidentDocuments())
-    # Vertex Gemini (user approved Nov 7 2026) for advisory agents, agent drafted ballot options and custom resolution.
-    vertex = vertex_provider if vertex_provider is not None else VertexText.from_env()
-    resolver = CustomResolver(rooms, inference_provider, vertex)
+    # ElevenLabs Agents on gpt-6.1-terra (user approved Nov 16 2026) write for the advisory agents, the agent drafted
+    # ballot options and custom resolution. Off unless BOARDROOM_AGENTS_ENABLED=true.
+    agents = agent_provider if agent_provider is not None else AgentText.from_env()
+    resolver = CustomResolver(rooms, inference_provider, agents)
     facilitation = facilitation_service if facilitation_service is not None else Facilitation(
-        rooms, inference_provider, speech, documents, vertex=vertex)
-    ai_options = AiOptions(rooms, vertex, documents)
+        rooms, inference_provider, speech, documents, agents=agents)
+    ai_options = AiOptions(rooms, agents, documents)
     clips = recorded_clips if recorded_clips is not None else RecordedClips()
     # Rounds 2 and 3: one private crisis coach and examiner per member (Cedar Bridge private_rounds profiles).
     prerecorded = load_prerecorded()
-    private = PrivateSessions(rooms, facilitation, vertex, clips, prerecorded=prerecorded)
+    private = PrivateSessions(rooms, facilitation, agents, clips, prerecorded=prerecorded)
     facilitation.private = private
     secure = secure_cookie if secure_cookie is not None else os.getenv("BOARDROOM_SECURE_COOKIE", "false").lower() == "true"
     origins = allowed_origins if allowed_origins is not None else [
@@ -99,7 +100,7 @@ def create_app(*, secure_cookie: bool | None = None, allowed_origins: list[str] 
     app.state.feedback = feedback
     app.state.resolver = resolver
     app.state.ai_options = ai_options
-    app.state.vertex = vertex
+    app.state.agents = agents
     app.state.recordings = recordings
     app.state.speech = speech
     app.state.facilitation = facilitation
@@ -200,7 +201,9 @@ def create_app(*, secure_cookie: bool | None = None, allowed_origins: list[str] 
 
     @app.post("/api/rooms/{room_id}/rounds/{round_id}/speaker/finish", response_model=RoomView, responses=errors)
     async def finish_speaking(room_id: UUID, round_id: UUID, body: PhaseCommand, member_session: authenticated):
-        return await rooms.play(member_session, room_id, body.command_id, body.phase_id, round_id, "finish")
+        view = await rooms.play(member_session, room_id, body.command_id, body.phase_id, round_id, "finish")
+        await facilitation.advance(member_session, room_id)  # The expert panel starts now if this was the last turn.
+        return view
 
     @app.post("/api/rooms/{room_id}/rounds/{round_id}/speaker/claim", response_model=RoomView, responses=errors)
     async def take_floor(room_id: UUID, round_id: UUID, body: PhaseCommand, member_session: authenticated):
@@ -210,7 +213,9 @@ def create_app(*, secure_cookie: bool | None = None, allowed_origins: list[str] 
     @app.post("/api/rooms/{room_id}/rounds/{round_id}/meeting/end", response_model=RoomView, responses=errors)
     async def end_meeting(room_id: UUID, round_id: UUID, body: PhaseCommand, member_session: authenticated):
         """Open floor rooms: the CEO closes the meeting and the round moves on."""
-        return await rooms.play(member_session, room_id, body.command_id, body.phase_id, round_id, "end_meeting")
+        view = await rooms.play(member_session, room_id, body.command_id, body.phase_id, round_id, "end_meeting")
+        await facilitation.advance(member_session, room_id)
+        return view
 
     @app.post("/api/rooms/{room_id}/rounds/{round_id}/speaker/clip", response_model=RoomView, responses=errors)
     async def speaker_clip(room_id: UUID, round_id: UUID, body: ClipCommand, member_session: authenticated):
@@ -223,11 +228,15 @@ def create_app(*, secure_cookie: bool | None = None, allowed_origins: list[str] 
 
     @app.post("/api/rooms/{room_id}/rounds/{round_id}/skip-phase", response_model=RoomView, responses=errors)
     async def skip_phase(room_id: UUID, round_id: UUID, body: PhaseCommand, member_session: authenticated):
-        return await rooms.play(member_session, room_id, body.command_id, body.phase_id, round_id, "skip_phase")
+        view = await rooms.play(member_session, room_id, body.command_id, body.phase_id, round_id, "skip_phase")
+        await facilitation.advance(member_session, room_id)
+        return view
 
     @app.post("/api/rooms/{room_id}/rounds/{round_id}/speaker/skip", response_model=RoomView, responses=errors)
     async def skip_speaker(room_id: UUID, round_id: UUID, body: SkipCommand, member_session: authenticated):
-        return await rooms.play(member_session, room_id, body.command_id, body.phase_id, round_id, "skip", body.reason)
+        view = await rooms.play(member_session, room_id, body.command_id, body.phase_id, round_id, "skip", body.reason)
+        await facilitation.advance(member_session, room_id)
+        return view
 
     @app.post("/api/rooms/{room_id}/rounds/{round_id}/vote", response_model=RoomView, responses=errors)
     async def vote(room_id: UUID, round_id: UUID, body: VoteCommand, member_session: authenticated):

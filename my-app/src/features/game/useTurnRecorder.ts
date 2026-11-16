@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { ManualTurnRecorder } from './manualRecorder'
+import { MICROPHONE, recorderOptions } from './dictationModel'
 import type { RoomSnapshot } from '../../services/rooms'
 import { roomApi } from '../rooms/useRoom'
 
@@ -24,12 +25,10 @@ export function useTurnRecorder(room: RoomSnapshot) {
     const capture = useMemo(() => new ManualTurnRecorder({
         microphone: async () => {
             if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') throw new Error('Microphone recording requires a supported browser and permission.')
-            return navigator.mediaDevices.getUserMedia({ audio: true })
+            return navigator.mediaDevices.getUserMedia({ audio: MICROPHONE })
         },
-        recorder: (stream) => {
-            const mime = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find((value) => MediaRecorder.isTypeSupported(value))
-            return new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
-        },
+        // Speech bitrate: a 30 second turn uploads about 120 KB, not about 480 KB.
+        recorder: (stream) => new MediaRecorder(stream, recorderOptions((value) => MediaRecorder.isTypeSupported(value))),
         authorize: async (turn) => {
             const current = await roomApi.snapshot(room.room_id)
             return current.phase === 'speaking' && current.game?.phase_id === turn.phaseId && current.game.active_speaker_id === room.self_member_id

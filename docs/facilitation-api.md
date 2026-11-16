@@ -18,23 +18,55 @@ Fixed catalog, ported from the playtest:
 
 Sources are tried in order and the one used is reported as `source`:
 
-1. `"vertex"`: Vertex AI Gemini (`gemini-3.8-flash`, LOW reasoning, Vertex Express) through `backend/app/vertex_text.py`, when configured. The user approved Vertex Gemini for the main backend agents on Nov 7 2026.
+1. `"agent"`: ElevenLabs Agents running `gpt-6.1-terra` through `backend/app/agent_text.py`, when configured. The user approved this on Nov 16 2026; it replaces the earlier Vertex Gemini provider, which is removed. Each request is one text only conversation with a private agent in the owner's ElevenLabs workspace: the backend mints a signed URL with the server side key, sends the task as one message over the conversation WebSocket and reads the answer. The writer agent (temperature 0.4) writes spoken text, the analyst agent (temperature 0) writes JSON that must be repeatable and the drafter agent (temperature 0.4) writes ballot options and the quiz. Model, temperature and output cap are stored on each agent; the Gemini backup model is disabled on all three.
 2. `"hosted"`: the existing hosted model (`backend/app/inference.py`, `HostedInference`), when configured.
 3. `"offline"`: a deterministic, clearly labelled reply grounded in the public documents, the attached incident report and the current node.
 
-Provider errors never reach the client; a failure silently moves to the next source. Frontend note: `source` is now `"vertex" | "hosted" | "offline"` (plus `null` while pending).
+Provider errors never reach the client; a failure silently moves to the next source. Frontend note: `source` is now `"agent" | "hosted" | "offline"` (plus `null` while pending).
 
-### Vertex configuration
+### Agent configuration
 
 | env var | default | meaning |
 | --- | --- | --- |
-| `GOOGLE_API_KEY` (or `VERTEX_API_KEY`) | unset | Vertex Express API key. Never logged or returned. |
-| `BOARDROOM_VERTEX_ENABLED` | `true` when a key is present, else `false` | Set `false` to force the hosted and offline sources and disable AI ballot options. |
-| `BOARDROOM_VERTEX_LEDGER` | `.local/vertex/ledger.sqlite` | Persistent SQLite usage ledger (the playtest `DollarBudget` schema). `.local/` is gitignored. Every attempt, including failures, records a row. |
-| `BOARDROOM_VERTEX_UNLIMITED` | `false` | `true` persists the unlimited authorization in the ledger (the user removed app spending caps). Usage rows are still recorded. |
-| `BOARDROOM_VERTEX_CAP_CENTS` | `2000` | App reservation cap when not unlimited (five cents reserved per attempt). |
+| `ELEVENLABS_API_KEY` | unset | The ElevenLabs key already used for speech. Never logged, returned or sent to a browser. |
+| `BOARDROOM_AGENTS_ENABLED` | `false` | Must be `true` (with a key) before any paid agent call. Otherwise the hosted and offline sources are used and AI ballot options are disabled. `compose.yaml` defaults it to `true` for the deployment. |
+| `BOARDROOM_AGENT_WRITER_ID`, `BOARDROOM_AGENT_ANALYST_ID`, `BOARDROOM_AGENT_DRAFTER_ID` | the agents in `backend/app/agent_text.py` | Optional: use other agents of the same workspace. |
+| `BOARDROOM_AGENTS_LEDGER` | `.local/agents/ledger.sqlite` | Persistent SQLite usage ledger (`SpendLedger`). `.local/` is gitignored. Every attempt, including failures, records a row with its reservation and the ElevenLabs conversation ID. |
+| `BOARDROOM_AGENTS_UNLIMITED` | `false` | `true` persists an unlimited authorization in the ledger. Usage rows are still recorded. The user authorized a US$50 cap, so leave this off unless they say otherwise. |
+| `BOARDROOM_AGENTS_CAP_CENTS` | `5000` | App reservation cap in US cents, at most 5000 (US$50, authorized Nov 16 2026). Each attempt reserves a whole number of cents that covers the US$0.003 message fee, the prompt and the whole output cap at the prices measured on Nov 16 2026 (input US$1.25 and output US$5.00 per million tokens): 1 to 3 cents for most calls, 8 cents for the quiz. |
+| `BOARDROOM_AGENTS_WARM` | `true` | Keeps one conversation per agent opened ahead while requests are recent, so a request skips the connection time (see Latency). Free until a message is sent. `false` opens every conversation on demand. |
+| `BOARDROOM_TIMING_LOG` | unset | A file path. When set, every agent request and speech synthesis appends one JSON line with its step, sizes and seconds (never prompts, answers or audio; member names are dropped from the step label). Summarize it with `python backend/timing_report.py <file>`. |
 
-The ledger file is created lazily on the first call, so starting the server or running tests never touches disk. Automated tests inject fakes and force `BOARDROOM_VERTEX_ENABLED=false`.
+The ledger file is created lazily on the first call, so starting the server or running tests never touches disk. Automated tests inject fakes and force `BOARDROOM_AGENTS_ENABLED=false`.
+
+## Latency (X54, Nov 16 2026)
+
+Measured in real judge demo games in headless Chrome with live agents and speech, from the player's action to the first sound of the voice in the browser. How to read the table: the first column was taken earlier the same night with the old code while other work was using the machine, so it overstates the old waits; the second column is the final code on a quiet machine. The third column is the only like for like comparison: the same final code and quiet machine with conversations opened ahead switched off (about 0.3 s a line). How much of the remaining difference between the first two columns comes from the other changes and how much from the quiet machine was not separated.
+
+| step | old code, busy machine | final code, quiet machine | final code, `BOARDROOM_AGENTS_WARM=false` |
+| --- | --- | --- | --- |
+| Opening briefing after Start | 4.6 s | 0.4 s with an opening written ahead (7 games); 2.3 to 3.6 s for the first game after a server start (4 starts) | the same (the opening written ahead does not depend on it) |
+| AI reply on a speaking turn | 2.75 s | median 2.2 s, 1.7 to 3.1 s (10 games; 2.1 to 2.5 s in the 3D view and in the production build) | median 2.5 s (4 games) |
+| AI written Round 1 decision | 3.6 s | median 1.9 s, 1.7 to 3.0 s (9 games) | median 2.2 s (4 games) |
+| Expert panel, first expert's voice after the last turn | about 7.7 s (a sum of separately measured steps, not one measurement) | 2.4 s (one quiet run; 2.5 to 2.9 s in two busier runs) | not measured |
+| Coach's reply after a private answer | 3.3 s | 2.0 s (one quiet run; 1.6 to 2.3 s in busier runs) | not measured |
+
+On the server, the agent request behind an AI reply took a median 1.5 to 1.7 s with a conversation opened ahead and 2.1 s without (the timing log records `warm` for each request).
+
+Where the time goes for one short agent line: about 0.4 s to open the conversation (signed URL, TLS and WebSocket handshake; up to 1.7 s on a busy machine), about 1.1 to 1.8 s until the model's first words, and about 0.5 s to finish 30 words. Prompt size hardly matters (0.5 KB against 12 KB changed the first words by about 0.2 s), putting the documents first for prompt caching made no measurable difference, and the agents' `fast` service tier cost double with no shorter wait, so the agents stay on `standard`.
+
+What changed:
+
+1. **Conversations opened ahead** (`backend/app/agent_text.py`). After each request, and when the game says one is coming (`AgentText.prime`), one more conversation for that agent is opened in the background and kept for at most 40 seconds; the next request takes it and skips the connection time. An unused conversation has no message and so no message fee. Replacements stop 90 seconds after the last request, so an idle server opens nothing. `BOARDROOM_AGENTS_WARM=false` turns this off.
+2. **Opening written ahead** (`Facilitation._opening`). The briefing depends only on public material, so after a room takes an opening the next one for the same scenario is written in the background and the next room speaks at once. It is kept for six hours and never shared across scenarios or document sets.
+3. **Expert panel**. The panel starts with the command that ends the last turn (`Facilitation.advance`) instead of a window's next poll; the three voices no longer queue behind each other (the first speaker's voice is made first as a whole file, the other two stream in parallel); the window polls every 400 ms instead of 1500 ms.
+4. **AI reply**. Its voice starts on the server as soon as the text exists, before the window asks for it.
+5. **Shorter lines** (less text, faster pace): opening 25 to 32 words (was 30 to 40), experts 22 to 32 (was 30 to 45), advisers at most 35 (was 45).
+6. **Private sessions** poll every 500 ms instead of 1200 ms, and a recorded turn's transcript is read as soon as its upload finishes instead of at the next 2 second poll.
+
+To measure again: set `BOARDROOM_TIMING_LOG` to a file path; every agent request and speech synthesis appends one JSON line (step, sizes, seconds and whether a conversation opened ahead was used; never prompts, answers or audio, and a member's display name is dropped from the step label). `python backend/timing_report.py <file>` prints one row for each step.
+
+Accuracy rule added with these changes (`UNKNOWN_RULE` in `backend/app/facilitation.py`, part of the rules for the opening, the advisers, the experts and AI replies): when the material says something has not been confirmed, checked or verified, the line must say exactly that and never that it is confirmed absent, safe or ruled out. Reason: with the earlier rules 2 of 10 live openings said the public documents "confirm no disclosure" where the source says "No data disclosure has been confirmed"; with the rule 0 of 10 did, and 12 live expert and adviser lines kept the distinction. The rule is not in the private coach, response card, quiz or ballot option prompts, which were not sampled for it.
 
 ## Voices and AI replies
 
@@ -42,16 +74,16 @@ Every speaker has its own premade ElevenLabs voice (`backend/app/voices.py`, cho
 
 `POST /api/rooms/{room_id}/facilitation/reply` with `{command_id, mode, question?}` drafts a reply the caller can use as their own:
 
-* `mode: "turn"`: only during the caller's own speaking turn (409 `not_your_turn` otherwise). Vertex writes a first person reply of 50 to 80 words for the caller's role, grounded in the scenario, documents, attached report and this round's contributions. Any room member can play its speech, so the three window demo shares it with every window.
+* `mode: "turn"`: only during the caller's own speaking turn (409 `not_your_turn` otherwise). The writer agent writes a first person reply of 50 to 80 words for the caller's role, grounded in the scenario, documents, attached report and this round's contributions. Any room member can play its speech, so the three window demo shares it with every window.
 * `mode: "private"`: only in the private session; `question` is the coach's current question. The answer builds on the caller's own written decision. Its speech is readable only by the caller.
 
-The response is `{reply_id, speech_id, mode, text, source}`; `source` is `vertex` (or `hosted` if Vertex failed). There is no offline fallback: 503 `ai_reply_unavailable` asks the player to retry or type. Play it with the speech `prepare` and `audio` routes below. A reply is only a draft: the player's client commits it as a contribution (speaking turns) or submits it as the private answer, and the model never submits anything itself.
+The response is `{reply_id, speech_id, mode, text, source}`; `source` is `agent` (or `hosted` if the agent failed). There is no offline fallback: 503 `ai_reply_unavailable` asks the player to retry or type. Play it with the speech `prepare` and `audio` routes below. A reply is only a draft: the player's client commits it as a contribution (speaking turns) or submits it as the private answer, and the model never submits anything itself.
 
-Speed: spoken text (agent lines, AI replies and coach questions) is generated with Gemini thinking off (`thinkingBudget: 0`); on this model the LOW thinking level spent 500+ tokens and 8 to 17 seconds on a 60 word line, against about 3 seconds without. Scoring and other JSON calls keep their thinking level. AI replies are grounded with Google embeddings (`gemini-embedding-001`, 768 dimensions, `backend/app/grounding.py`): public documents and attached report sections are split into passages of about 480 characters, embedded once per process, and the passages closest to the speaker's role and the latest contributions (or the coach's question) fill the prompt's 2 KB document budget; any failure falls back to the plain documents. Embedding calls are not written to the Vertex spending ledger.
+Speed: spoken text (agent lines, AI replies and coach questions) is generated with reasoning effort `none` on all three agents; measured Nov 16 2026, a 40 word spoken line took 2.7 seconds and an 18 KB JSON task 1.5 seconds, signed URL included. AI replies are grounded by local word matching (`backend/app/grounding.py`, no network call and no cost): public documents and attached report sections are split into passages of about 480 characters, and the passages that share the most distinctive words with the speaker's role and the latest contributions (or the coach's question) fill the prompt's 2 KB document budget; when nothing matches it falls back to the plain documents.
 
 `GET /api/rooms/{room_id}/facilitation/speech/{speech_id}/stream` returns a line's MP3 as ElevenLabs produces it (64 kbps, first audio in about a quarter second). The first request starts one upstream synthesis; every other window reads the same chunks, and once complete the line is cached for `prepare` and `audio` like any other. Access rules match `audio`. The app plays it through Media Source Extensions and falls back to the whole file where those are unavailable. Measured end to end in Chrome: about 2.9 seconds from pressing AI reply to hearing it, down from 8 to 11 seconds.
 
-In the private session the Round 2 coach's questions are now phrased by Vertex (temperature 0.3, at most 60 words) from the approved canonical question, the member's decision and previous answer; the canonical question stays the graded question and is used whenever Vertex is off or returns no question. Answers open once the phrased question is ready.
+In the private session the Round 2 coach's questions are now phrased by the writer agent (temperature 0.4, at most 60 words) from the approved canonical question, the member's decision and previous answer; the canonical question stays the graded question and is used whenever the agents are off or return no question. Answers open once the phrased question is ready.
 
 ## Routes
 
@@ -63,7 +95,7 @@ In the private session the Round 2 coach's questions are now phrased by Vertex (
     "status": "pending | ready | failed",
     "title": "Opening briefing",
     "text": "AI facilitator introduction of the incident ...",
-    "source": "vertex | hosted | offline",
+    "source": "agent | hosted | offline",
     "speech_id": "uuid or null",
     "error": null
   },
@@ -79,7 +111,7 @@ In the private session the Round 2 coach's questions are now phrased by Vertex (
       "question": "What must be verified before we promise a restoration time?",
       "status": "pending | ready | failed",
       "reply": "text or null",
-      "source": "vertex | hosted | offline | null",
+      "source": "agent | hosted | offline | null",
       "speech_id": "uuid or null",
       "error": null,
       "at": "ISO timestamp"
@@ -123,7 +155,7 @@ The room snapshot has a new field `game.discussion_mode`: `"experts"` when the r
     "status": "pending | ready",
     "experts": [
       {"kind": "security", "label": "IT and security", "status": "pending | ready | failed", "text": "spoken take",
-       "source": "vertex | hosted | offline | null", "speech_id": "uuid or null", "error": null},
+       "source": "agent | hosted | offline | null", "speech_id": "uuid or null", "error": null},
       {"kind": "operations", "label": "Operations and community services", "status": "...", "text": "...", "source": "...", "speech_id": "...", "error": null},
       {"kind": "governance", "label": "Governance and finance", "status": "...", "text": "...", "source": "...", "speech_id": "...", "error": null}
     ]
@@ -135,7 +167,7 @@ The room snapshot has a new field `game.discussion_mode`: `"experts"` when the r
 
 ### Generation
 
-The first GET while the room is in `discussion` with `discussion_mode == "experts"` starts one shared job for that round; concurrent callers share it and no second job is ever started for the same round. The three experts are generated in parallel through the same Vertex, hosted, offline chain as the other facilitation text, and each falls back to its own offline take on its own. Poll the GET until `status` is `"ready"`.
+The first GET while the room is in `discussion` with `discussion_mode == "experts"` starts one shared job for that round; concurrent callers share it and no second job is ever started for the same round. The three experts are generated in parallel through the same agents, hosted, offline chain as the other facilitation text, and each falls back to its own offline take on its own. Poll the GET until `status` is `"ready"`.
 
 Each take is about 60 to 90 words of speakable prose (markdown and list markers are stripped), in that expert's persona, grounded only in the current node title, situation and study questions, the public documents, the attached incident report, and this round's contributions so far (answers and chat, attributed by display name and role name; committed saved clip captions are answer contributions, so they are included). The hidden controller reference is never read. Experts are advisory only: they cannot vote, pick a winner, or claim facts beyond the sources. Each responds to the board's actual contributions. The IT and security expert says what is technically known, what is uncertain and which proposed steps are risky; the operations and community services expert says how staff and community members will be affected; the governance and finance expert says who can authorize the proposed actions and which resources and responsibilities matter. Each kind has its own clearly labelled offline take (for example "Offline IT and security take (no AI model connected).") that quotes the recorded contributions.
 
@@ -181,7 +213,7 @@ Each round, agents draft the voting options instead of the authored prepared opt
 
 ### Generation
 
-When the round's speaking phase begins, the server starts one Vertex job, and it refreshes once when discussion begins (the latest ready set wins; an older job cannot replace a newer ready set). The prompt contains only public or allowed information: the current node title, situation and study questions, public facts and documents, the attached incident report text, this round's contributions, and the node's allowed custom outcome IDs (as aliases O1, O2, ...) with their authored summaries. The hidden controller reference is never read.
+When the round's speaking phase begins, the server starts one agent job, and it refreshes once when discussion begins (the latest ready set wins; an older job cannot replace a newer ready set). The prompt contains only public or allowed information: the current node title, situation and study questions, public facts and documents, the attached incident report text, this round's contributions, and the node's allowed custom outcome IDs (as aliases O1, O2, ...) with their authored summaries. The hidden controller reference is never read.
 
 Output must be exactly three options with distinct labels (8 to 160 characters), a description of 20 to 400 characters, a rationale of 5 to 300 characters, and an outcome that is one of the node's `allowed_custom_outcome_ids`. Invalid output or a provider failure is retried once; after that the round falls back to the prepared options. Results are stored on the game through the room owner with job IDs, and a result for an older round, an unknown job, or an already frozen ballot is discarded.
 
@@ -193,7 +225,7 @@ When discussion ends and voting opens, the ballot freezes: ready AI options plus
 | --- | --- | --- |
 | `ballot_source` | `"ai" \| "authored"` | Room setting from Start. |
 | `options_source` | `"ai" \| "prepared_fallback" \| "authored"` | Where `current_node.options` come from. Before voting it describes the ballot that would freeze now; after freezing it is fixed for the round. `"prepared_fallback"` means agents were not ready, failed, or are not configured. |
-| `ai_options_status` | `"pending" \| "ready" \| "failed" \| "disabled"` | `pending`: agents are drafting (show "Agents are drafting options"). `ready`: AI options are in use. `failed`: the round uses the prepared fallback. `disabled`: Vertex not configured, `ballot_source` is `"authored"`, or the node allows no custom outcomes. |
+| `ai_options_status` | `"pending" \| "ready" \| "failed" \| "disabled"` | `pending`: agents are drafting (show "Agents are drafting options"). `ready`: AI options are in use. `failed`: the round uses the prepared fallback. `disabled`: the agents are not configured, `ballot_source` is `"authored"`, or the node allows no custom outcomes. |
 
 AI options appear in the existing `current_node.options` list (during speaking and discussion as a preview, and frozen during voting and tie break):
 
@@ -208,18 +240,18 @@ Prepared options keep `kind: "prepared"` and custom proposals keep `kind: "custo
 
 ### Resolution
 
-When an AI option wins (vote or CEO tie decision), it resolves immediately to its prevalidated authored outcome with no resolving phase. The decision record has `resolution_kind: "ai"`, `selection_method` (`"vote"` or `"ceo"`), `vote_counts`, the option label as `selected_option_label`, and `ai_job_id` set to the job that drafted the ballot. Human custom proposals keep the existing 15 second custom resolution path, now tried first with Vertex when configured (strict `{"outcome": alias}` validation against the node's `allowed_custom_outcome_ids`), then the hosted resolver. Members can also add a custom option while voting is open; see the custom actions section of [gameplay API](gameplay-api.md).
+When an AI option wins (vote or CEO tie decision), it resolves immediately to its prevalidated authored outcome with no resolving phase. The decision record has `resolution_kind: "ai"`, `selection_method` (`"vote"` or `"ceo"`), `vote_counts`, the option label as `selected_option_label`, and `ai_job_id` set to the job that drafted the ballot. Human custom proposals keep the existing 15 second custom resolution path, now tried first with the agents when configured (strict `{"outcome": alias}` validation against the node's `allowed_custom_outcome_ids`), then the hosted resolver. Members can also add a custom option while voting is open; see the custom actions section of [gameplay API](gameplay-api.md).
 
 ## Rounds 2 and 3: private coach and examiner
 
 After the Round 1 individual decisions, Cedar Bridge rooms enter the `private_session` phase (see [the gameplay API](gameplay-api.md#rounds-2-and-3-private-session-phase)). Each electorate member works through a private branch with one agent, labelled "Crisis coach". The same agent coaches in Round 2 and becomes the examiner in Round 3. Branches run concurrently and independently: one member's answers never change another member's branch. The implementation is `backend/app/private_sessions.py`, ported from the playtest four round beta.
 
-Beta mode is always on for Round 2. The approved twists and the canonical coaching questions follow the order of the saved fixture answers. Gemini writes the short acknowledgements and the response card draft at temperature 0, and the five Round 3 multiple choice questions at temperature 0.4. The server validates the questions, shuffles the choices, records each pick and computes every total.
+Beta mode is always on for Round 2. The approved twists and the canonical coaching questions follow the order of the saved fixture answers. The analyst agent writes the short acknowledgements and the response card draft at temperature 0, and the five Round 3 multiple choice questions at temperature 0.4. The server validates the questions, shuffles the choices, records each pick and computes every total.
 
 ### Flow
 
 1. Round 2 coaching, no points. The first GET during the phase creates the branch and presents the twist "The IT specialist is now unavailable. Your original response relied on their advice." and question 1. After each answer the coach acknowledges it in one short sentence and asks the next canonical question. Question 2 follows the approved update "The alternate provider can investigate, but needs an authorized contact." After the third answer the coach drafts a seven field response card (action, responsibility, evidence, dependencies, fallback, communication, review). The member edits every field and confirms it.
-2. Round 3 assessment, up to 100 points. After the card is recorded the examiner posts the transition "Your preparation is complete. The scored challenge begins now. I will ask you five multiple choice questions about your response." and Gemini writes five questions for this member (`quiz.status: "generating"`, `busy: true`). Each question is posted as a ready agent `question` message (round 3, step 1 to 5) when it becomes current, so it is spoken and captioned like other coach lines; its four choices are shown as buttons and are not spoken. The member picks one choice per question with `POST .../private-session/choice`; picks are final. The server reveals that question's points, posts "Question n: X of 20 points." and then the next question. After question 5 the stage becomes `complete` and the full review (every choice's points and rationale) is released.
+2. Round 3 assessment, up to 100 points. After the card is recorded the examiner posts the transition "Your preparation is complete. The scored challenge begins now. I will ask you five multiple choice questions about your response." and the drafter agent writes five questions for this member (`quiz.status: "generating"`, `busy: true`). Since X54 the request for those questions is sent together with the card draft, not after it, so the first question follows the coach's closing words without a silent wait; its prompt therefore holds the member's Round 1 decision and coaching answers but not the response card drafted from them (not starting `ahead` in `PrivateSessions._run_card` restores the old order at a cost of about 5 s). Each question is posted as a ready agent `question` message (round 3, step 1 to 5) when it becomes current, so it is spoken and captioned like other coach lines; its four choices are shown as buttons and are not spoken. The member picks one choice per question with `POST .../private-session/choice`; picks are final. The server reveals that question's points, posts "Question n: X of 20 points." and then the next question. After question 5 the stage becomes `complete` and the full review (every choice's points and rationale) is released.
 3. Complete. The phase ends for the whole room when every electorate member is complete, at the deadline, or on a host `skip_phase`.
 
 | Round | Step | Development message | Question |
@@ -227,7 +259,7 @@ Beta mode is always on for Round 2. The approved twists and the canonical coachi
 | 2 | 1 | twist: The IT specialist is now unavailable. Your original response relied on their advice. | What would you do next? |
 | 2 | 2 | update: The alternate provider can investigate, but needs an authorized contact. | What authority, access and dependencies must you establish before they can investigate? |
 | 2 | 3 | none | Review your proposed response: who should act, what is the fallback, who needs an update, and when would you review progress? |
-| 3 | 1 to 5 | transition (after the card) | Five Gemini multiple choice questions for this member; a later question may introduce the approved update "The alternate provider cannot begin immediately. Staff still need instructions." inside its own text. |
+| 3 | 1 to 5 | transition (after the card) | Five agent written multiple choice questions for this member; a later question may introduce the approved update "The alternate provider cannot begin immediately. Staff still need instructions." inside its own text. |
 
 ### `GET /api/rooms/{room_id}/private-session`
 
@@ -243,7 +275,7 @@ Returns the caller's own branch only. It works during `private_session` and afte
     {"message_id": "uuid", "author": "agent | member",
      "kind": "twist | question | ack | update | transition | answer | result",
      "round": 2, "step": 1, "text": "...", "status": "pending | ready | failed",
-     "source": "vertex | hosted | offline | canonical | null", "speech_id": "uuid or null", "at": "ISO timestamp"}
+     "source": "agent | hosted | offline | canonical | null", "speech_id": "uuid or null", "at": "ISO timestamp"}
   ],
   "expecting": {"round": 2, "step": 1, "question": "The IT specialist is now unavailable. Your original response relied on their advice. What would you do next?"},
   "busy": false,
@@ -271,7 +303,7 @@ Returns the caller's own branch only. It works during `private_session` and afte
 1. `round` is 2 for the `coaching` and `card` stages and 3 afterwards; `agent.role` is `coach` then `examiner`.
 2. `expecting` is the Round 2 coaching question awaiting a free text answer. Its `question` is self contained: it includes the twist or update shown as a separate message before the question. It is `null` while the agent is busy, during the card stage, throughout Round 3 (no free text), after a failed job, and once the phase has ended.
 3. `clip` is the caller's saved fictional answer for the expecting round and step, chosen by seat (the member's index in `game.eligible_member_ids`: 0 leadership, 1 recovery, 2 communications), or `null`. Its `audio_url` is served by `GET /api/recordings/{clip_id}/audio`. Playing it never submits anything.
-4. Agent messages carry `source: "canonical"` for server authored text (twist, updates, coaching questions, transition, Round 3 results), the provider for acknowledgements, and `"vertex"` for Round 3 questions. A `pending` placeholder appears while an acknowledgement is being produced; it becomes `ready` or `failed`. Member messages (free text answers, and the chosen choice text in Round 3) have `source: null`.
+4. Agent messages carry `source: "canonical"` for server authored text (twist, updates, coaching questions, transition, Round 3 results), the provider for acknowledgements, and `"agent"` for Round 3 questions. A `pending` placeholder appears while an acknowledgement is being produced; it becomes `ready` or `failed`. Member messages (free text answers, and the chosen choice text in Round 3) have `source: null`.
 5. `card` is `null` until drafting starts. `quiz` is `null` before Round 3. `quiz.current` is the question to answer now (1 to 5), or `null` while generating, after a failure and once complete. `quiz.questions` lists only questions already reached (answered ones plus the current one); choices carry only `choice_id` and `text`, and `points` is set once that question is answered. `quiz.review` with every choice's points and rationale is `null` until `stage` is `complete`. `quiz.total` is the server computed sum of earned points. `assessment` is kept for compatibility: five 20 point stages, `total` (`null` before the first pick) and `feedback: null`.
 6. `retryable` is `true` when an agent job (acknowledgement, card or quiz generation) failed; nothing else can happen in the branch until it is retried.
 
@@ -301,13 +333,13 @@ Each Round 3 question has `QUESTION_SECONDS = 60`, counted from when its questio
 
 ### Generation and scoring
 
-1. Acknowledgements and the card draft use the same chain as other facilitation text: Vertex Gemini first (JSON output, temperature 0), then the hosted model, then an offline fallback. The offline acknowledgement is a neutral sentence; the offline card splits the member's own decision text into the matching fields and leaves the rest empty for the member to complete.
-2. The Round 3 quiz uses Vertex Gemini only (JSON output, LOW thinking, temperature 0.4, up to 12288 output tokens, 90 second timeout), with no hosted or offline fabrication. It is grounded in the public report and documents, the Round 1 discussion and expert panel, the member's role, their own written decision, their coaching answers and their recorded card. Questions test crisis judgment for this scenario and member (authority, facts versus uncertainty, dependencies, fallback, communication, review), never trivia or invented facts. Two live generations on the Cedar Bridge grounding took 13.0 and 14.9 seconds.
+1. Acknowledgements and the card draft use the same chain as other facilitation text: the ElevenLabs agents first (JSON output, temperature 0), then the hosted model, then an offline fallback. The offline acknowledgement is a neutral sentence; the offline card splits the member's own decision text into the matching fields and leaves the rest empty for the member to complete.
+2. The Round 3 quiz uses the ElevenLabs drafter agent only (JSON output, temperature 0.4, up to 12288 output tokens, 90 second timeout, backup requests only after 30 and 60 seconds; measured 12.3 seconds on Nov 16 2026), with no hosted or offline fabrication. It is grounded in the public report and documents, the Round 1 discussion and expert panel, the member's role, their own written decision, their coaching answers and their recorded card. Questions test crisis judgment for this scenario and member (authority, facts versus uncertainty, dependencies, fallback, communication, review), never trivia or invented facts. Two live generations on the Cedar Bridge grounding took 13.0 and 14.9 seconds.
 3. Validation: exactly 5 questions of 10 to 400 characters, each with exactly 4 choices (text 2 to 300 characters, rationale 1 to 300, whole number points, no duplicate texts); the points are exactly one 0, one 20 and two distinct values strictly between. Invalid output is retried once with the rejection reason; a second failure (or a provider failure) leaves `quiz.status: "failed"` and `retryable`. The server shuffles each question's choices and assigns `choice_id` `a` to `d` in shown order. Points and rationales never leave the server before that question is answered, and other choices' points and every rationale only after completion.
 
 ### Private isolation
 
-A member's prompts contain only the public report and public documents, the Round 1 discussion (attributed answers and chat, excluding every individual decision), the expert panel, that member's own Round 1 decision and that member's own private history and card. Other members' decisions and private answers are never included. The GET returns only the caller's branch, and a member can never read another member's session. The points Gemini assigns to each choice are its judgment; validation enforces the points structure, not that the judgment is fair.
+A member's prompts contain only the public report and public documents, the Round 1 discussion (attributed answers and chat, excluding every individual decision), the expert panel, that member's own Round 1 decision and that member's own private history and card. Other members' decisions and private answers are never included. The GET returns only the caller's branch, and a member can never read another member's session. The points the agent assigns to each choice are its judgment; validation enforces the points structure, not that the judgment is fair.
 
 ### Speech
 

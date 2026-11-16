@@ -61,17 +61,17 @@ function useAgentVoices(roomId: string, messages: readonly PrivateMessage[], spo
                 if (!alive.current) return
                 if (prepared.status === 'pending') {
                     if (attempt < SPEECH_RETRIES) { await new Promise((resolve) => setTimeout(resolve, 1200)); return load(speechId, attempt + 1) }
-                    settle(speechId, { state: 'unavailable', message: 'The voice took too long to prepare. The text stays readable.' }); return
+                    settle(speechId, { state: 'unavailable', message: 'Voice unavailable. Open Captions to read.' }); return
                 }
-                if (prepared.status === 'disabled') { settle(speechId, { state: 'unavailable', message: 'Spoken replies are turned off for this session.' }); return }
-                if (prepared.status !== 'ready') { settle(speechId, { state: 'unavailable', message: prepared.error || 'The voice could not be prepared. The text stays readable.' }); return }
+                if (prepared.status === 'disabled') { settle(speechId, { state: 'unavailable', message: 'Voice is off. Open Captions to read.' }); return }
+                if (prepared.status !== 'ready') { settle(speechId, { state: 'unavailable', message: prepared.error || 'Voice unavailable. Open Captions to read.' }); return }
                 const blob = await facilitationApi.speechAudio(roomId, speechId)
                 if (!alive.current) return
                 const url = URL.createObjectURL(blob)
                 urls.current.push(url)
                 settle(speechId, { state: 'ready', url })
             } catch (failure) {
-                settle(speechId, { state: 'unavailable', message: facilitationErrorMessage(failure, 'The voice is unavailable. The text stays readable.') })
+                settle(speechId, { state: 'unavailable', message: facilitationErrorMessage(failure, 'Voice unavailable. Open Captions to read.') })
             }
         }
         for (const item of messages) {
@@ -93,24 +93,26 @@ function LockIcon() {
 /**
  * The coach's current question, kept small so the 3D boardroom stays visible. No text box: Dictate (words shown here
  * with Submit once spoken), AI reply (your saved answer, spoken by your character) or Chat (typed) answer it.
+ * `compact` (captions hidden) keeps the spoken question to one line; the full words are in the transcript and on hover.
  */
-function QuestionCard({ question, draft, clear, disabled, onSubmit, dictation }: {
-    question: string; draft: string; clear: () => void; disabled: boolean; onSubmit: () => void; dictation: Dictation
+function QuestionCard({ question, draft, clear, disabled, onSubmit, dictation, compact }: {
+    question: string; draft: string; clear: () => void; disabled: boolean; onSubmit: () => void; dictation: Dictation; compact: boolean
 }) {
     const spoken = draft.trim()
     const answering = dictation.listening || dictation.transcribing || Boolean(spoken)
     const seconds = dictation.seconds
     // While answering, the question shrinks to one line (full text on hover) so your character stays in view.
-    return <div className={`private-composer private-question-card${answering ? ' is-answering' : ''}`}>
+    const oneLine = answering || compact
+    return <div className={`private-composer private-question-card${oneLine ? ' is-answering' : ''}`}>
         <span className="private-eyebrow">Your coach asks</span>
-        <p className="private-question" title={answering ? question : undefined}>{question}</p>
+        <p className="private-question" title={oneLine ? question : undefined}>{question}</p>
         {answering ? <div className="private-dictated">
             {dictation.listening && <div className="private-mic" role="status">
                 <span className="private-listening"><span className="vote-waiting-dot" aria-hidden="true" />Listening {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</span>
                 <span className="private-level" aria-hidden="true"><span style={{ transform: `scaleX(${Math.max(0.04, dictation.level)})` }} /></span>
-                <span className="private-hint">Press <strong>Stop</strong> when you finish; your words appear here.</span>
+                <span className="private-hint">Press <strong>Stop</strong> when done.</span>
             </div>}
-            {dictation.transcribing && <p className="private-hint" role="status"><span className="vote-waiting-dot" aria-hidden="true" /> Transcribing what you said…</p>}
+            {dictation.transcribing && <p className="private-hint" role="status"><span className="vote-waiting-dot" aria-hidden="true" /> Transcribing…</p>}
             {(spoken || dictation.interim) && <p className="private-dictated-text" aria-live="polite">
                 {spoken}{dictation.interim ? <span className="private-interim">{spoken ? ' ' : ''}{dictation.interim}</span> : null}
             </p>}
@@ -118,7 +120,7 @@ function QuestionCard({ question, draft, clear, disabled, onSubmit, dictation }:
                 <button type="button" className="private-discard" disabled={disabled || !spoken} onClick={clear}>Discard</button>
                 <button type="button" className="opening-play" disabled={disabled || !canSubmitAnswer(draft)} onClick={onSubmit}>Submit answer</button>
             </div>}
-        </div> : <p className="private-hint">Answer with <strong>Dictate</strong>, <strong>AI reply</strong> or <strong>Chat</strong>. Only your crisis coach sees it.</p>}
+        </div> : <p className="private-hint">Answer with <strong>Dictate</strong>, <strong>AI reply</strong> or <strong>Chat</strong>.</p>}
         {dictation.note && <p className="private-hint private-hint--problem" role="status">{dictation.note}</p>}
     </div>
 }
@@ -128,8 +130,8 @@ function ResponseCardForm({ initial, disabled, onConfirm }: { initial: ResponseC
     return <form className="private-card" onSubmit={(event) => { event.preventDefault(); if (canConfirmCard(fields) && !disabled) void onConfirm(trimCard(fields)) }}>
         <header>
             <p className="private-eyebrow">Round 2 · Response card</p>
-            <h3>Check and correct your response card</h3>
-            <p className="private-hint">Your coach drafted this from your answers. Fill in every field; write “{NEEDS_CONFIRMATION}” for anything still unknown. Preparation earns no points.</p>
+            <h3>Check your response card</h3>
+            <p className="private-hint">Fill in every field. Write “{NEEDS_CONFIRMATION}” for unknowns.</p>
         </header>
         <div className="private-card-fields">
             {CARD_FIELDS.map(({ key, label, hint }) => <label key={key} className="private-card-field">
@@ -300,7 +302,7 @@ export default function PrivateSessionStage({ room, handle, auto, selfName, self
     const coachTalking = playing || Boolean(current && current.status === 'ready' && !voiceDriven)
     const selfTalking = auto.playing || dictation.listening
     // The 3D boardroom lights the table hub while the coach (or examiner) speaks.
-    useReportAgent(coachTalking ? { kind: 'coach', name: examiner ? `${agentName} · examiner` : agentName, role: examiner ? 'AI examiner · scored assessment' : 'AI crisis coach · private', accent: examiner ? '#b58c28' : null } : null)
+    useReportAgent(coachTalking ? { kind: 'coach', name: examiner ? `${agentName} · examiner` : agentName, role: examiner ? 'AI examiner' : 'AI crisis coach', accent: examiner ? '#b58c28' : null } : null)
     const coachState = handle.notEligible ? 'Observing' : unavailable ? 'Unavailable'
         : !session ? (error ? 'Reconnecting' : 'Connecting')
         : current?.status === 'pending' ? 'Thinking'
@@ -318,26 +320,32 @@ export default function PrivateSessionStage({ room, handle, auto, selfName, self
     const tiles = <div className="call-duo">
         <CallTile name={`${selfName} (you)`} role={selfRole} size="main" talking={selfTalking} status={selfState}
             avatar={{ kind: 'initials', text: playerInitials(selfName), color: playerAvatarColor(room.self_member_id) }} />
-        <CallTile name={examiner ? `${agentName} · examiner` : agentName} role={examiner ? 'AI examiner · scored assessment' : 'AI crisis coach · private'} size="main"
+        <CallTile name={examiner ? `${agentName} · examiner` : agentName} role={examiner ? 'AI examiner' : 'AI crisis coach'} size="main"
             talking={coachTalking} status={coachState} avatar={{ kind: 'orb' }} accent={examiner ? '#b58c28' : undefined} className="call-tile--coach" />
     </div>
     const stageQuiz = session && !complete && (session.stage === 'assessment' || session.stage === 'complete') ? session.quiz : null
     const problem = error || notice
 
-    const dockContent = session && !complete && !stageQuiz && <div className="private-dock">
-        {showComposer && session.expecting && <QuestionCard question={questionText(session)} draft={draftText} clear={discard} disabled={sending || session.busy}
-            onSubmit={() => void submit()} dictation={dictation} />}
-        {auto.playing && <p className="private-note" role="status">Playing your saved answer. It is submitted when the clip ends.</p>}
-        {!showComposer && !auto.playing && session.expecting && !caughtUp && <p className="private-note">You can answer when {agentName} finishes speaking.</p>}
-        {session.busy && !session.retryable && session.stage !== 'card' && <p className="private-note" role="status">{session.stage === 'assessment' ? `${agentName} is scoring your answer…` : `${agentName} is thinking…`}</p>}
+    // The dock renders only when it has something to show, so no empty box floats on the stage while captions are hidden.
+    const dockQuestion = Boolean(session && showComposer && session.expecting)
+    const dockWaiting = Boolean(session && !showComposer && !auto.playing && session.expecting && !caughtUp)
+    const dockBusy = Boolean(session && session.busy && !session.retryable && session.stage !== 'card')
+    const dockCard = Boolean(session && session.stage === 'card' && caughtUp)
+    const dockFilled = dockQuestion || auto.playing || dockWaiting || dockBusy || Boolean(session?.retryable) || dockCard
+    const dockContent = session && !complete && !stageQuiz && dockFilled && <div className="private-dock">
+        {dockQuestion && <QuestionCard question={questionText(session)} draft={draftText} clear={discard} disabled={sending || session.busy}
+            onSubmit={() => void submit()} dictation={dictation} compact={!dock} />}
+        {auto.playing && <p className="private-note" role="status">Playing your saved answer…</p>}
+        {dockWaiting && <p className="private-note">Wait for {agentName} to finish.</p>}
+        {dockBusy && <p className="private-note" role="status">{session.stage === 'assessment' ? `${agentName} is scoring…` : `${agentName} is thinking…`}</p>}
         {session.retryable && <div className="private-retry" role="alert">
-            <p>{agentName} could not respond. Your answers are kept.</p>
+            <p>{agentName} could not respond.</p>
             <button type="button" className="opening-play" disabled={sending || session.busy} onClick={() => void handle.retry()}>Retry</button>
         </div>}
-        {session.stage === 'card' && caughtUp && (session.card?.status === 'draft'
+        {dockCard && (session.card?.status === 'draft'
             ? <ResponseCardForm key={session.card.fields.action} initial={session.card.fields} disabled={sending || session.busy} onConfirm={handle.confirmCard} />
-            : session.card?.status === 'confirmed' ? <p className="private-note" role="status">Response card confirmed. The assessment begins shortly.</p>
-            : <div className="opening-shimmer private-card-recording" aria-busy="true"><p className="opening-shimmer-label">{agentName} is recording your response card from your answers…</p><span /><span /></div>)}
+            : session.card?.status === 'confirmed' ? <p className="private-note" role="status">Response card confirmed.</p>
+            : <div className="opening-shimmer private-card-recording" aria-busy="true"><p className="opening-shimmer-label">Preparing your response card…</p><span /><span /></div>)}
     </div>
 
     return <motion.section
@@ -350,7 +358,7 @@ export default function PrivateSessionStage({ room, handle, auto, selfName, self
     >
         <div className="call-stage-head private-head">
             <h2 id="private-title" className="opening-pill private-pill">{privateRoundLabel(round)}</h2>
-            <span className="private-lock"><LockIcon />Private: only you and your crisis coach</span>
+            <span className="private-lock" title="Only you and your crisis coach"><LockIcon />Private</span>
             {round === 3 && session && (session.quiz ? <ol className="private-chips private-chips--compact" aria-label="Assessment questions">
                 {quizChips(session.quiz).map((chip) => <li key={chip.step} className={`private-chip private-chip--${chip.status}`}>
                     <span><span aria-hidden="true">Q{chip.step}</span><span className="game-visually-hidden">Question {chip.step}</span></span><strong>{chip.text}</strong>
@@ -387,7 +395,6 @@ export default function PrivateSessionStage({ room, handle, auto, selfName, self
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
                 Tap to hear
             </button>}
-            {blocked && activeUrl && <p className="opening-voice-notice" role="status">The browser blocked autoplay. Tap once to hear your coach.</p>}
             {voice?.state === 'unavailable' && <p className="opening-voice-notice" role="status">{voice.message}</p>}
             {current && current.status === 'ready' && <button type="button" className="opening-link" onClick={showAll} title="Stop the coach's voice and put the remaining lines in the transcript">Skip ahead</button>}
             {problem && !unavailable && <p className="opening-voice-notice" role="alert">{problem}</p>}

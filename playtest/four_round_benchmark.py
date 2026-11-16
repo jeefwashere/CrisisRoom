@@ -20,7 +20,7 @@ def main():
     parser.add_argument('--url',default='http://127.0.0.1:8788')
     parser.add_argument('--resume',action='store_true',help='Explicitly retry a saved local benchmark room after a failure')
     args=parser.parse_args()
-    if not args.live:parser.error('--live is required for paid Gemini and ElevenLabs requests')
+    if not args.live:parser.error('--live is required for paid ElevenLabs agent and speech requests')
     people=[MeetingClient(args.url) for _ in range(3)];host=people[0]
     checkpoint=Path('.local/ai-playtest/four-round-benchmark-memberships.json')
     out=Path(__file__).parent/('evaluations/four-round-adaptive-live.json' if args.adaptive else 'evaluations/four-round-live.json');lock=threading.Lock()
@@ -33,7 +33,7 @@ def main():
     else:
         joined=host.request('/api/roundtable/join',{'name':'Alex beta','flow':'four_rounds'});host.token=joined['token']
         for member,name in zip(people[1:],('Morgan beta','Sam beta')):member.join(name,joined['code'])
-        report={'room':joined['code'],'method':'Three HTTP memberships. Scripted typed fixture answers, real Gemma retrieval, Gemini replies and selected streamed ElevenLabs PCM. No browser or listening check. MP3 playback is covered separately with a controlled server clock.','streams':[],'beta_mode':not args.adaptive}
+        report={'room':joined['code'],'method':'Three HTTP memberships. Scripted typed fixture answers, real Gemma retrieval, ElevenLabs agent replies and selected streamed ElevenLabs PCM. No browser or listening check. MP3 playback is covered separately with a controlled server clock.','streams':[],'beta_mode':not args.adaptive}
         host.command('set_beta_mode',enabled=not args.adaptive)
         checkpoint.parent.mkdir(parents=True,exist_ok=True)
         with os.fdopen(os.open(checkpoint,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600),'w') as handle:

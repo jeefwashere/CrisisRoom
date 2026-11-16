@@ -6,7 +6,7 @@ import { audioDurationMs } from './useAutoResponse'
 import type { AutoPlayback, AutoResponseState } from './useAutoResponse'
 
 /**
- * "AI reply" during a private session: Vertex writes a first person answer to the coach's current question, it is
+ * "AI reply" during a private session: an ElevenLabs agent writes a first person answer to the coach's current question, it is
  * spoken in the member's role voice with its caption in the live transcript, then submitted as the answer. Mirrors
  * `useAutoResponse`. The member can always type or speak their own answer instead.
  */

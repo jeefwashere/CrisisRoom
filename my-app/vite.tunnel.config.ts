@@ -10,7 +10,7 @@ import base from './vite.config.ts'
 const backend = process.env.BOARDROOM_BACKEND ?? 'http://127.0.0.1:8000'
 
 // The demo login, enforced here so it protects every tunnel (ngrok, Tailscale Funnel): the backend can spend paid
-// Vertex AI and ElevenLabs credit. `user:password` from TUNNEL_BASIC_AUTH or NGROK_BASIC_AUTH, else the generated
+// ElevenLabs credit. `user:password` from TUNNEL_BASIC_AUTH or NGROK_BASIC_AUTH, else the generated
 // login in .local/ngrok-demo/login (git ignored); `off` disables it.
 function tunnelLogin(): string | null {
   const chosen = process.env.TUNNEL_BASIC_AUTH ?? process.env.NGROK_BASIC_AUTH

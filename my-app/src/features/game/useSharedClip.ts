@@ -4,6 +4,7 @@ import type { RoomSnapshot } from '../../services/rooms'
 import { facilitationApi } from '../facilitation/facilitationClient'
 import { REPLY_CLIP_PREFIX, streamedSpeech } from './aiReply'
 import { sharedClipOffsetSeconds } from './savedClips'
+import { meterVoice } from './voiceMeter'
 
 export type SharedClip = { key: string; turn: string; speakerId: string; text: string; remainingMs: number | null }
 
@@ -37,6 +38,8 @@ export function useSharedClip(room: RoomSnapshot, catalog: readonly RecordedClip
             if (speech) { player = speech.player; dispose = speech.dispose }
             else if (saved) player = new Audio(facilitationApi.recordingUrl(saved))
             if (!player) return
+            // The speaker's 3D character moves its mouth with this audio (streamed replies are already metered).
+            meterVoice(player)
             // Start where the speaker is now, including the time spent fetching the audio. A streamed line's length
             // is unknown until it ends; seeking past its end simply ends playback.
             const at = offset + (performance.now() - begun) / 1000

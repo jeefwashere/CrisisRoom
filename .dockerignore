@@ -20,10 +20,8 @@
 **/*.sqlite
 **/*.sqlite-*
 artifacts
-# Only runtime provider code and public demo assets enter the backend image.
+# Only public demo assets enter the backend image.
 playtest/*
-!playtest/__init__.py
-!playtest/vertex.py
 !playtest/fixtures/
 playtest/fixtures/*
 !playtest/fixtures/participant-packs.json

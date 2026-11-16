@@ -26,7 +26,7 @@
    "triangles": 7146,
    "source_triangles": 7146,
    "texture_px": 2048,
-   "bytes": 761312,
+   "bytes": 566564,
    "source": "assets/props/advanced-2026-11-07/tripo-new/modern conference table 3d model.glb"
   },
   {
@@ -44,7 +44,7 @@
    "triangles": 9424,
    "source_triangles": 9424,
    "texture_px": 2048,
-   "bytes": 830252,
+   "bytes": 583616,
    "source": "assets/props/advanced-2026-11-07/tripo-new/luxury office chair 3d model.glb"
   },
   {
@@ -62,7 +62,7 @@
    "triangles": 6000,
    "source_triangles": 33039,
    "texture_px": 1024,
-   "bytes": 264044,
+   "bytes": 133968,
    "source": "assets/props/advanced-2026-11-07/tripo-new/gold framed monitor 3d model.glb"
   },
   {
@@ -80,7 +80,7 @@
    "triangles": 8000,
    "source_triangles": 38254,
    "texture_px": 1024,
-   "bytes": 355268,
+   "bytes": 210520,
    "source": "assets/props/advanced-2026-11-07/tripo-new/round wireless charging pad 3d model.glb"
   },
   {
@@ -98,7 +98,7 @@
    "triangles": 9999,
    "source_triangles": 28251,
    "texture_px": 2048,
-   "bytes": 1127828,
+   "bytes": 430272,
    "source": "assets/props/advanced-2026-11-07/tripo-new/modern wooden sideboard 3d model.glb"
   },
   {
@@ -116,7 +116,7 @@
    "triangles": 6000,
    "source_triangles": 8770,
    "texture_px": 1024,
-   "bytes": 398060,
+   "bytes": 215088,
    "source": "assets/props/advanced-2026-11-07/tripo-new/wooden touchscreen display 3d model.glb"
   },
   {
@@ -134,7 +134,7 @@
    "triangles": 8000,
    "source_triangles": 9405,
    "texture_px": 1024,
-   "bytes": 491692,
+   "bytes": 262884,
    "source": "assets/props/advanced-2026-11-07/tripo-new/laptop 3d model.glb"
   },
   {
@@ -152,7 +152,7 @@
    "triangles": 6000,
    "source_triangles": 9364,
    "texture_px": 1024,
-   "bytes": 333260,
+   "bytes": 188612,
    "source": "assets/props/advanced-2026-11-07/tripo-new/modern circular clock 3d model.glb"
   },
   {
@@ -170,7 +170,7 @@
    "triangles": 25999,
    "source_triangles": 38455,
    "texture_px": 2048,
-   "bytes": 2298688,
+   "bytes": 916568,
    "source": "assets/props/advanced-2026-11-07/tripo-new/potted olive tree 3d model.glb"
   },
   {
@@ -188,8 +188,9 @@
    "triangles": 10000,
    "source_triangles": 34107,
    "texture_px": 1024,
-   "bytes": 482940,
+   "bytes": 284068,
    "source": "assets/props/advanced-2026-11-07/tripo-new/decanter with glasses 3d model.glb"
   }
- ]
+ ],
+ "optimized": "tools/optimize-models.mjs: KHR_mesh_quantization, EXT_meshopt_compression, WebP for the plant and credenza textures"
 }

@@ -22,7 +22,7 @@ function quiz(change: Record<string, unknown> = {}): PrivateQuiz {
 }
 
 const agent = (id: string, kind: PrivateMessage['kind'], step: number | null = null, round: 2 | 3 = 3): PrivateMessage =>
-    ({ message_id: id, author: 'agent', kind, round, step, text: `${id} text`, status: 'ready', source: 'vertex', speech_id: `s-${id}`, at: '' })
+    ({ message_id: id, author: 'agent', kind, round, step, text: `${id} text`, status: 'ready', source: 'agent', speech_id: `s-${id}`, at: '' })
 
 test('quiz payloads are read defensively', () => {
     assert.equal(normalizeQuiz(null), null)

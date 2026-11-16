@@ -11,7 +11,6 @@ from fastapi.testclient import TestClient
 from playtest.server import create_app
 from playtest.preparation_stream import split_speech
 from playtest.speech import Speech
-from playtest.vertex import VertexModels, VertexError
 from playtest.tests.test_roundtable_api import MemoryFixture, ProviderFixture
 
 
@@ -71,7 +70,7 @@ class StreamingRoutes(unittest.TestCase):
     def events(self, response):
         self.assertEqual(response.status_code, 200, response.text)
         return [json.loads(line) for line in response.text.splitlines()]
-    def test_audio_arrives_while_gemini_is_still_writing(self):
+    def test_audio_arrives_while_the_agent_is_still_writing(self):
         self.provider.overlap = True
         events = self.events(self.request())
         kinds = [e['type'] for e in events]
@@ -232,35 +231,7 @@ class StreamingRoutes(unittest.TestCase):
 
 
 class ProviderStreaming(unittest.TestCase):
-    def test_sse_deltas_and_shared_budget(self):
-        payload = [
-            {'candidates':[{'content':{'parts':[{'text':'private thought','thought':True},{'text':'First. '}]}}]},
-            {'candidates':[{'content':{'parts':[{'text':'Second.'}]},'finishReason':'STOP'}],
-             'usageMetadata':{'promptTokenCount':10,'candidatesTokenCount':4}}]
-        class Opener:
-            def open(self, request, timeout):
-                self.url = request.full_url
-                return io.BytesIO(b''.join(b'data: '+json.dumps(e).encode()+b'\n\n' for e in payload))
-        with tempfile.TemporaryDirectory() as directory:
-            opener = Opener()
-            provider = VertexModels(key='test-key', directory=directory, opener=opener)
-            self.assertEqual(list(provider.stream('A prompt')), ['First. ', 'Second.'])
-            self.assertTrue(opener.url.endswith(':streamGenerateContent?alt=sse'))
-            self.assertNotIn('test-key', opener.url)
-            self.assertEqual(provider.budget.status()['attempts'], 1)
-            self.assertEqual(provider.budget.status()['reserved_usd'], .05)
-    def test_incomplete_sse_fails_without_automatic_retry(self):
-        class Opener:
-            calls = 0
-            def open(self, *args, **kwargs):
-                self.calls += 1
-                return io.BytesIO(b'data: {"candidates":[]}\n\n')
-        with tempfile.TemporaryDirectory() as directory:
-            opener = Opener()
-            provider = VertexModels(key='test-key', directory=directory, opener=opener)
-            with self.assertRaises(VertexError): list(provider.stream('Prompt'))
-            self.assertEqual(opener.calls, 1)
-            self.assertEqual(provider.budget.status()['attempts'], 1)
+    # Text streaming from the ElevenLabs agents is covered in playtest/tests/test_agent_models.py.
     def test_speech_reserves_before_network_and_reads_chunks(self):
         with tempfile.TemporaryDirectory() as directory:
             speech = Speech('test-key', directory, 30000)

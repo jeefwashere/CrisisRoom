@@ -127,7 +127,7 @@ def main():
     save()
     print(json.dumps({'passed': True, 'clips': len(clips), 'transcriptions': len(report['transcripts']),
                       'live_jobs': len(report['jobs']), 'speech': report['after']['speech'],
-                      'vertex': report['after']['models']['budget']}), flush=True)
+                      'agents': report['after']['models']['budget']}), flush=True)
 
 
 if __name__ == '__main__':

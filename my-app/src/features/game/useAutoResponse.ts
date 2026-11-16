@@ -22,7 +22,7 @@ export function audioElapsedMs(audio: HTMLAudioElement): number {
 }
 
 /**
- * "AI reply" for the caller's speaking turn: Vertex writes a first person reply for the caller's role from what the
+ * "AI reply" for the caller's speaking turn: an ElevenLabs agent writes a first person reply for the caller's role from what the
  * board has said, ElevenLabs speaks it in the role's voice, then its exact caption is committed as the caller's
  * answer. With untimed turns (three window demo) the reply also plays in the other windows, and passing the turn is
  * left to Finish my turn; otherwise the turn passes when it ends. The caption goes to the live transcript.

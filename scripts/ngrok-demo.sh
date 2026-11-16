@@ -5,7 +5,7 @@
 # ngrok tunnel to it, then prints the public address. The backend must already be running (default
 # http://127.0.0.1:8000). Stop everything with Ctrl+C.
 #
-# The tunnel asks for a login by default, because the backend can spend paid Vertex AI and ElevenLabs credit.
+# The tunnel asks for a login by default, because the backend can spend paid ElevenLabs credit.
 #   NGROK_BASIC_AUTH=user:password   use this login instead of the generated one
 #   NGROK_BASIC_AUTH=off             no login (anyone with the address can play and trigger paid calls)
 #   TUNNEL_PORT=5175                 local port for the tunnel's Vite server

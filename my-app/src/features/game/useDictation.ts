@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { DICTATION_UNAVAILABLE, createSpeechReader, speechRecognitionConstructor } from './dictationModel'
+import { DICTATION_UNAVAILABLE, MICROPHONE, createSpeechReader, recorderOptions, speechRecognitionConstructor, withTimeout } from './dictationModel'
 import type { SpeechRecognitionLike } from './dictationModel'
 
 /** Sends one recorded clip to the server's speech to text and resolves with its words. */
 export type Transcribe = (clip: { audio_base64: string; mime_type: string }) => Promise<string>
 
 const MAX_MS = 120_000
-const MIN_BYTES = 1500
+// About a quarter of a second at the speech bitrate; anything smaller is an accidental press.
+const MIN_BYTES = 600
+// The server gives the provider 30 seconds (a two minute dictation took under 3); past this the request itself has stalled.
+const TRANSCRIBE_TIMEOUT_MS = 45_000
+const TRANSCRIPTION_UNAVAILABLE = 'Transcription is unavailable right now; type instead or try again.'
 
 function toBase64(blob: Blob): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -19,7 +23,7 @@ function toBase64(blob: Blob): Promise<string> {
 
 function failureText(error: unknown): string {
     const message = error instanceof Error ? error.message : ''
-    return message && message.length < 160 ? message : 'Transcription is unavailable right now; type instead or try again.'
+    return message && message.length < 160 ? message : TRANSCRIPTION_UNAVAILABLE
 }
 
 type Capture = {
@@ -44,6 +48,7 @@ export function useDictation(onFinal: (words: string) => void, transcribe?: Tran
     const [note, setNote] = useState('')
     const capture = useRef<Capture | null>(null)
     const starting = useRef(false)
+    const cancelStart = useRef(false)
     const browserOnly = useRef<SpeechRecognitionLike | null>(null)
     const onFinalRef = useRef(onFinal)
     const transcribeRef = useRef(transcribe)
@@ -88,7 +93,8 @@ export function useDictation(onFinal: (words: string) => void, transcribe?: Tran
         }
         setTranscribing(true)
         try {
-            const words = await transcribeRef.current({ audio_base64: await toBase64(blob), mime_type: blob.type })
+            const words = await withTimeout(transcribeRef.current({ audio_base64: await toBase64(blob), mime_type: blob.type }),
+                TRANSCRIBE_TIMEOUT_MS, TRANSCRIPTION_UNAVAILABLE)
             if (words.trim()) onFinalRef.current(words.trim())
             else setNote('No words were recognised. Try again a little closer to the microphone.')
         } catch (error) {
@@ -108,6 +114,8 @@ export function useDictation(onFinal: (words: string) => void, transcribe?: Tran
             else void finish(current)
             return
         }
+        // Stopped (leaving the call, a phase change) while the microphone was still opening: do not start after all.
+        if (starting.current) cancelStart.current = true
         browserOnly.current?.stop()
     }, [finish])
 
@@ -129,12 +137,12 @@ export function useDictation(onFinal: (words: string) => void, transcribe?: Tran
             return
         }
         starting.current = true
-        setListening(true)
+        cancelStart.current = false
         setSeconds(0)
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-            const mime = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find((value) => MediaRecorder.isTypeSupported(value))
-            const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: MICROPHONE })
+            if (cancelStart.current) { stream.getTracks().forEach((track) => track.stop()); return }
+            const recorder = new MediaRecorder(stream, recorderOptions((value) => MediaRecorder.isTypeSupported(value)))
             const began = Date.now()
             const current: Capture = { stream, recorder, chunks: [], recognition: null, heard: '', limit: setTimeout(() => stop(), MAX_MS),
                 clock: setInterval(() => setSeconds(Math.floor((Date.now() - began) / 1000)), 250) }
@@ -161,6 +169,9 @@ export function useDictation(onFinal: (words: string) => void, transcribe?: Tran
             }, () => { current.recognition = null })
             capture.current = current
             recorder.start(250)
+            // Shown as listening only now. Opening a microphone takes a moment (longer with a wireless headset or a
+            // permission prompt), and words spoken before the recorder starts are never captured.
+            setListening(true)
         } catch {
             setListening(false)
             setNote("The microphone is blocked or unavailable. Allow microphone access for this site, or type in Chat instead.")

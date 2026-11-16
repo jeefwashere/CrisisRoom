@@ -1,7 +1,7 @@
 {
   "generated": "2026-11-07",
   "file": "room.glb",
-  "bytes": 3134668,
+  "bytes": 1404120,
   "builder": "game-ui/tools/build_room.py (Blender 5.2, Cycles Metal bake)",
   "coordinates": "three.js metres, +Y up; interior x -5.25..7.6, z -3.6..3.6, floor y 0, ceiling y 3.2 (coffer recess rises to y 3.5 above the table)",
   "meshes": {
@@ -83,7 +83,7 @@
     "exposure": 1.0
   },
   "sky": {
-    "file": "textures/sky/skyline.jpg",
+    "file": "textures/sky/skyline.webp",
     "source": "Poly Haven sunset_jhbcentral (CC0), tonemapped JPG downscaled to 4096x2048",
     "u_facing_minus_x": 0.4,
     "blender_world_rotation_z_deg": -144.0,

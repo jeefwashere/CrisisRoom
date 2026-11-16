@@ -18,7 +18,8 @@ import {
     expertPersona, normalizeExperts, panelForRound, panelSettled, panelSourceLabel,
 } from './expertPanelModel'
 
-const POLL_MS = 1500
+// Short, so the panel's first voice is not held back by the wait for the next poll (it was 1500 ms; measured Nov 16 2026).
+const POLL_MS = 400
 // Roughly the pace of spoken ElevenLabs speech, so silent frames (no voice here) hold each take about as long as the host.
 const CHARS_PER_SECOND = 15
 // Pause after a silent take, before the next expert starts.
@@ -67,17 +68,17 @@ function useExpertVoices(roomId: string, experts: readonly ExpertTake[], enabled
                 if (!alive.current) return
                 if (prepared.status === 'pending') {
                     if (attempt < SPEECH_RETRIES) { await new Promise((resolve) => setTimeout(resolve, 1500)); return load(speechId, attempt + 1) }
-                    settle(speechId, { state: 'unavailable', message: 'The voice took too long to prepare. The take stays readable.' }); return
+                    settle(speechId, { state: 'unavailable', message: 'Voice unavailable. Open Captions to read.' }); return
                 }
-                if (prepared.status === 'disabled') { settle(speechId, { state: 'unavailable', message: 'Spoken takes are turned off for this session.' }); return }
-                if (prepared.status !== 'ready') { settle(speechId, { state: 'unavailable', message: prepared.error || 'The voice could not be prepared. The take stays readable.' }); return }
+                if (prepared.status === 'disabled') { settle(speechId, { state: 'unavailable', message: 'Voice is off. Open Captions to read.' }); return }
+                if (prepared.status !== 'ready') { settle(speechId, { state: 'unavailable', message: prepared.error || 'Voice unavailable. Open Captions to read.' }); return }
                 const blob = await facilitationApi.speechAudio(roomId, speechId)
                 if (!alive.current) return
                 const url = URL.createObjectURL(blob)
                 urls.current.push(url)
                 settle(speechId, { state: 'ready', url })
             } catch (failure) {
-                settle(speechId, { state: 'unavailable', message: facilitationErrorMessage(failure, 'The voice is unavailable. The take stays readable.') })
+                settle(speechId, { state: 'unavailable', message: facilitationErrorMessage(failure, 'Voice unavailable. Open Captions to read.') })
             }
         }
         for (const take of experts) {
@@ -178,8 +179,8 @@ export default function ExpertPanelStage({ room, finishPanel, notice, members, t
     const source = panelSourceLabel(experts)
     const speakingNow = activeTake?.status === 'ready' ? activeTake.label : ''
     const words = individual
-        ? { heading: 'Expert panel · advice before your decision', skip: 'Skip to decisions', opens: 'Decisions open shortly.', advisory: 'Advisory only: experts cannot decide for you', failed: 'Decisions could not be opened automatically. The host can try Skip to decisions.' }
-        : { heading: 'Expert panel · advice before the vote', skip: 'Skip to the vote', opens: 'Voting opens shortly.', advisory: 'Advisory only: experts cannot vote', failed: 'Voting could not be opened automatically. The host can try Skip to the vote.' }
+        ? { skip: 'Skip to decisions', opens: 'Decisions open shortly.', failed: 'Decisions could not be opened. The host can press Skip to decisions.' }
+        : { skip: 'Skip to the vote', opens: 'Voting opens shortly.', failed: 'Voting could not be opened. The host can press Skip to the vote.' }
     const problem = finishFailed ? (notice || words.failed) : ''
 
     return <motion.section
@@ -191,7 +192,7 @@ export default function ExpertPanelStage({ room, finishPanel, notice, members, t
         transition={{ duration: 0.35, ease: 'easeOut' }}
     >
         <div className="call-stage-head">
-            <h2 id="expert-panel-title" className="opening-pill expert-heading">{words.heading}</h2>
+            <h2 id="expert-panel-title" className="opening-pill expert-heading">Expert panel</h2>
             <Countdown key={game.phase_id + (game.server_time ?? '')} deadline={game.phase_deadline} serverTime={game.server_time} className="opening-countdown" />
         </div>
         <p className="game-visually-hidden" role="status">{complete ? 'The expert panel has finished.' : speakingNow ? `${speakingNow} is speaking. Their take is in the live transcript.` : 'The experts are preparing.'}</p>
@@ -217,17 +218,15 @@ export default function ExpertPanelStage({ room, finishPanel, notice, members, t
             onError={() => { setPlaying(false); setBlocked(false); live.end(); setBrokenSpeech(activeTake.speech_id) }} />}
 
         <div className="opening-footer call-stage-footer">
-            {!panel && <p className="opening-voice-notice" role="status">The experts are reviewing the discussion…{error ? ` ${error} Retrying automatically.` : ''}</p>}
+            {!panel && <p className="opening-voice-notice" role="status">Experts preparing…{error ? ` ${error} Retrying…` : ''}</p>}
             {blocked && <button type="button" className="opening-play" onClick={() => { void audioRef.current?.play().then(() => setBlocked(false)).catch(() => undefined) }}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
                 Tap to hear the experts
             </button>}
-            {blocked && <p className="opening-voice-notice" role="status">The browser blocked autoplay. Tap once to hear the live expert panel.</p>}
             {activeVoice?.state === 'unavailable' && <p className="opening-voice-notice" role="status">{activeVoice.message}</p>}
-            {!PLAYS_VOICE && !complete && <p className="opening-voice-notice" role="status">Experts are speaking on the host's screen.</p>}
+            {!PLAYS_VOICE && !complete && <p className="opening-voice-notice" role="status">Sound plays on the host's screen.</p>}
             {complete && !finishFailed && <p className="opening-voice-notice" role="status">{words.opens}</p>}
             {problem && <p className="opening-voice-notice" role="alert">{problem}</p>}
-            <span className="opening-source">{words.advisory}</span>
             {source && <span className={`opening-source${source === 'Offline reply' ? ' is-offline' : ''}`}>{source}</span>}
             {finishPanel && <button type="button" className="opening-link" onClick={skipToVote}>{words.skip}</button>}
         </div>

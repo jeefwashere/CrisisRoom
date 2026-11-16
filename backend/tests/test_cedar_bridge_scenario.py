@@ -14,8 +14,8 @@ from backend.app.main import SESSION_HEADER, create_app
 from backend.app.rooms import Rooms, StartSpec
 from backend.app.scenarios import ScenarioCatalog
 
-# Automated tests never make paid Vertex calls.
-os.environ["BOARDROOM_VERTEX_ENABLED"] = "false"
+# Automated tests never make paid agent calls.
+os.environ["BOARDROOM_AGENTS_ENABLED"] = "false"
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "scenarios/cedar_bridge_t01/v1"

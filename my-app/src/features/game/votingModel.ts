@@ -63,7 +63,7 @@ export function aiOptionsNotice(game: { ballot_source?: string; options_source?:
         return null
     }
     if (phase === 'voting' || phase === 'tie_break') {
-        if (game.options_source === 'ai') return 'Options drafted by AI agents (Vertex Gemini). Only members vote.'
+        if (game.options_source === 'ai') return 'Options drafted by AI agents (ElevenLabs, GPT Terra). Only members vote.'
         if (game.options_source === 'prepared_fallback') return 'AI options were not ready, so the scenario\'s prepared options are used.'
     }
     return null

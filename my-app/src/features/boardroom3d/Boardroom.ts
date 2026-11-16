@@ -12,13 +12,16 @@
 import * as THREE from 'three/webgpu'
 import { mrt, normalView, output, pass, vec3, vec4 } from 'three/tsl'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { CHARACTER_IDS, MODELS, fetchAsset, propManifest, propUrl, type PropWord } from './assets'
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
+import { CHARACTER_IDS, MODELS, fetchAsset, propManifest, propUrl, roomManifest, roomSky, type PropWord } from './assets'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
 import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js'
 import { SeatTags } from './SeatTags'
 import type { BoardMood, BoardroomView } from './boardroomModel'
+import { Blinker, FACE_MORPHS, SPEECH_MOUTH_MAX, approach, faceFrame, neutralFace, speechHead, type FaceMorph, type VoiceSample } from './faceExpressions'
+import { readVoice, type VoiceReading } from '../game/voiceMeter'
 
 /** Alex (CEO), Morgan (IT recovery lead), Sam (communications lead), in seat order. */
 export { CHARACTER_IDS }
@@ -27,6 +30,20 @@ type Mood = BoardMood | 'disbelief'
 
 /** Wall screen clock: the phase deadline and the server time it was read at. */
 export type SceneClock = { deadline: string | null; serverTime: string | null }
+
+/** Whether `createImageBitmap` honours `imageOrientation` (the same browser test GLTFLoader makes for its textures). */
+function bitmapsFlip(): boolean {
+  if (typeof createImageBitmap !== 'function') return false
+  const agent = navigator.userAgent
+  const safari = /^((?!chrome|android).)*safari/i.test(agent) ? Number(/Version\/(\d+)/.exec(agent)?.[1] ?? 0) : null
+  const firefox = Number(/Firefox\/(\d+)/.exec(agent)?.[1] ?? 0)
+  return !(safari !== null && safari < 17) && !(firefox > 0 && firefox < 98)
+}
+
+/** Loading milestones as User Timing marks (`board3d:*`), so a profile or a test page can see where the time goes. */
+function mark(name: string) {
+  performance.mark(`board3d:${name}`)
+}
 
 const TABLE = { length: 4.2, width: 1.4, height: 0.76 }
 const UP = new THREE.Vector3(0, 1, 0)
@@ -37,21 +54,36 @@ const UP = new THREE.Vector3(0, 1, 0)
  */
 const EDGE_GAP = 0.27
 /**
- * Where resting wrists go, in seat space (+X is the character's left, +Z its front). The hand
- * bone to fingertip is about 22 cm, so the wrists sit 13 cm past the edge with the forearms on
- * the table, and the whole hand lies on the top instead of hooking over the edge. Wide enough
- * that the fingers stay clear of the laptop.
+ * The left hand rests on the left thigh, under the table and out of the camera's sight (seat space: +X is
+ * the character's left, +Z its front). LAP_ALONG is how far from hip to knee the wrist sits: the table edge
+ * is above 0.6 of the way, so the hand and its fingers lie beneath the top. THIGH is the thigh's radius.
  */
-const HAND_REST = { x: 0.25, y: TABLE.height + 0.045, z: EDGE_GAP + 0.13 }
+const LAP_ALONG = 0.66
+const THIGH = 0.07
+/** How far the lap hand's fingers open from the clip's clasped pose toward the open bind pose: loosely curled. */
+const FINGER_RELAX = 0.8
+/** Clearance of a wrist (the hand bone) above the surface its hand lies on, and of a finger joint's centre (a finger's radius). */
+const WRIST_CLEARANCE = 0.035
+const FINGER_CLEARANCE = 0.009
 /**
- * How far resting fingers open from the clip's clasped pose toward the open bind pose. The
- * clasped fingers reach 8 cm below the wrist, so they open fully to lie flat on the top.
+ * A computer mouse at every seat, between the laptop (17 cm either side of the seat's centre) and the voting
+ * console (from 30 cm to the right): its centre in seat space and its size. Its body is half an ellipsoid.
  */
-const FINGER_RELAX = 1
-/** Height of a finger joint's centre when it rests on the tabletop (about a finger's radius). */
-const FINGER_FLOOR = TABLE.height + 0.009
-/** Share of the clip's hand movement kept on top of the resting hands. Low keeps hands calm. */
-const GESTURE_SCALE = 0.15
+const MOUSE = { x: -0.24, z: EDGE_GAP + 0.25, halfWidth: 0.034, halfLength: 0.062, height: 0.04 }
+/** The right hand (the character's -X) rests on the mouse; the left rests on the lap, under the table. */
+const MOUSE_SIDE = -1
+/** Wrist of the mouse hand in seat space: behind the mouse and high enough for the palm to lie on its back. */
+const MOUSE_WRIST = { x: MOUSE.x - 0.004, y: TABLE.height + 0.052, z: MOUSE.z - 0.112 }
+/** How far the mouse hand's fingers open from the clip's clasped pose: partly curled, so they drape over the mouse. */
+const MOUSE_FINGER_RELAX = 0.42
+/** How much of the open hand's finger spread is taken out on the mouse, so the fingers lie together. */
+const MOUSE_FINGER_GATHER = 1
+
+/** Height of the mouse's surface above the tabletop at a point in seat space (0 beside it). */
+function mouseTop(x: number, z: number): number {
+  const cap = 1 - ((x - MOUSE.x) / MOUSE.halfWidth) ** 2 - ((z - MOUSE.z) / MOUSE.halfLength) ** 2
+  return cap > 0 ? MOUSE.height * Math.sqrt(cap) : 0
+}
 
 interface Seat {
   position: THREE.Vector3
@@ -77,6 +109,16 @@ function makeSeats(): Seat[] {
   ]
 }
 
+/**
+ * Characters whose blink shape keys have been reviewed. Every character carries the same face rig, but the
+ * blink was built by hand only for these; on the others the automatic eyelids tear, so their eyes stay open.
+ */
+const BLINK_READY = new Set(['01-coo', '02-cfo', '03-cto', '08-sales-manager'])
+/** How long a talker may stay silent at first before the mouth turns procedural (their clip is still loading). */
+const VOICE_GRACE = 1.2
+/** A closed mouth for a talker whose voice has stopped or not started yet. */
+const QUIET_VOICE: VoiceSample = { level: 0, brightness: 0.5 }
+
 /** Top of the holo hub model (0.13 m tall) at the centre of the table. */
 const HUB_TOP = new THREE.Vector3(0, TABLE.height + 0.13, 0)
 const AGENT_COLOR = '#f0a23a'
@@ -90,6 +132,23 @@ class Avatar {
   hips: THREE.Bone | null = null
   mood: Mood | null = null
   yaw = 0
+  /** Eased up or down head correction (radians, positive lifts the face). */
+  pitch = 0
+  /** The face's forward direction in the head bone's local space, measured in the bind pose. */
+  private faceAxis: THREE.Vector3 | null = null
+  /** Every mesh slot for each face morph: the face mesh, and the mouth interior for the mouth shapes. */
+  private morphs = new Map<FaceMorph, { influences: number[]; index: number }[]>()
+  private face = neutralFace()
+  private blinker = new Blinker()
+  private blinks = false
+  private readonly faceSeed = Math.random() * 100
+  /** This member is talking now (set from the board view). */
+  talking = false
+  /** Seconds since this member started talking, and whether a voice has played for them since. */
+  private talkingFor = 0
+  private voiceHeard = false
+  /** 0 to 1, eased: how actively the mouth is moving, which drives the small speaking head movement. */
+  private speaking = 0
 
   readonly seat: Seat
 
@@ -99,21 +158,40 @@ class Avatar {
     this.group.rotation.y = seat.yaw
   }
 
-  attach(gltf: GLTF, clips: THREE.AnimationClip[]) {
+  attach(gltf: GLTF, clips: THREE.AnimationClip[], characterId: string) {
     this.model = gltf.scene
+    this.blinks = BLINK_READY.has(characterId)
     this.model.traverse((o) => {
       const mesh = o as THREE.SkinnedMesh
       if (mesh.isSkinnedMesh) {
-        mesh.castShadow = true
+        // The mouth interior is a dark cavity behind the lips: it stays matte and unlit by the room's reflections.
+        const cavity = (mesh.material as THREE.Material | undefined)?.name === 'mouth_cavity'
+        mesh.castShadow = !cavity
         mesh.receiveShadow = true
         mesh.frustumCulled = false
-        tuneMaterial(mesh.material as THREE.MeshStandardMaterial, { roughness: 0.74, envMapIntensity: 0.95 })
+        tuneMaterial(mesh.material as THREE.MeshStandardMaterial, cavity ? { roughness: 1, envMapIntensity: 0 } : { roughness: 0.74, envMapIntensity: 0.95 })
+        if (mesh.morphTargetDictionary && mesh.morphTargetInfluences) {
+          for (const morph of FACE_MORPHS) {
+            const index = mesh.morphTargetDictionary[morph]
+            if (index === undefined) continue
+            const slots = this.morphs.get(morph) ?? []
+            slots.push({ influences: mesh.morphTargetInfluences, index })
+            this.morphs.set(morph, slots)
+          }
+        }
       }
       const bone = o as THREE.Bone
       if (bone.isBone && /Head$/.test(bone.name) && !/HeadTop/.test(bone.name)) this.head = bone
       if (bone.isBone && /Hips$/.test(bone.name)) this.hips = bone
     })
     this.group.add(this.model)
+    // In the bind pose the face looks along the character's +Z; keep that direction in head space so
+    // lookAt can tell how far the animation tips the head up or down.
+    if (this.head) {
+      this.group.updateMatrixWorld(true)
+      const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.group.getWorldQuaternion(new THREE.Quaternion()))
+      this.faceAxis = forward.applyQuaternion(this.head.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize()
+    }
     this.mixer = new THREE.AnimationMixer(this.model)
     for (const clip of clips) {
       const action = this.mixer.clipAction(clip)
@@ -122,7 +200,6 @@ class Avatar {
     }
     this.findArms()
     this.setMood('sit', 0)
-    this.measureRest()
   }
 
   setMood(mood: Mood, fade = 0.5) {
@@ -137,18 +214,71 @@ class Avatar {
     this.mood = mood
   }
 
+  /**
+   * The speaking face: while this member talks the mouth follows their voice, and it returns to rest when the
+   * voice stops. `reading` is what this window hears right now, or null while an AI agent holds the floor.
+   * Characters without the face rig are left alone.
+   */
+  updateFace(dt: number, time: number, reading: VoiceReading | null) {
+    if (this.morphs.size === 0) return
+    let voice: VoiceSample | null = null
+    if (this.talking) {
+      this.talkingFor += dt
+      if (reading?.state === 'level') {
+        this.voiceHeard = true
+        voice = reading
+      } else if (reading?.state === 'unmetered') {
+        // A voice is playing but cannot be analysed here: the procedural mouth stands in while it plays.
+        this.voiceHeard = true
+      } else if (reading?.state === 'silent' && (this.voiceHeard || this.talkingFor < VOICE_GRACE)) {
+        // Their clip has ended, or has not started yet: the mouth stays shut.
+        voice = QUIET_VOICE
+      }
+      // Otherwise nobody's audio plays here (a live microphone in another window): procedural mouth.
+    } else {
+      this.talkingFor = 0
+      this.voiceHeard = false
+    }
+    const blink = this.blinks ? this.blinker.update(dt, this.talking) : 0
+    const weights = faceFrame(this.face, { talking: this.talking, voice }, blink, time, this.faceSeed, dt)
+    for (const [morph, slots] of this.morphs) {
+      for (const slot of slots) slot.influences[slot.index] = weights[morph]
+    }
+    this.speaking = approach(this.speaking, Math.min(1, (weights.MouthOpen / SPEECH_MOUTH_MAX) * 3), 2.5, dt)
+  }
+
   /** Turn the head toward a world point after the animation pose is applied. */
-  lookAt(target: THREE.Vector3 | null, dt: number) {
+  lookAt(target: THREE.Vector3 | null, dt: number, time: number) {
     if (!this.head || !this.head.parent) return
+    // A small nod and turn while the mouth is moving, so a speaker is not a still head with a moving jaw.
+    const speech = speechHead(time, this.faceSeed, this.speaking)
     let desired = 0
+    let elevation: number | null = null
     if (target) {
       const local = this.group.worldToLocal(target.clone())
       const headLocal = this.group.worldToLocal(this.head.getWorldPosition(new THREE.Vector3()))
       desired = THREE.MathUtils.clamp(Math.atan2(local.x - headLocal.x, local.z - headLocal.z), -1.1, 1.1)
+      elevation = Math.atan2(local.y - headLocal.y, Math.hypot(local.x - headLocal.x, local.z - headLocal.z))
     }
     this.yaw = THREE.MathUtils.damp(this.yaw, desired, 4, dt)
     const world = this.head.getWorldQuaternion(new THREE.Quaternion())
-    world.premultiply(new THREE.Quaternion().setFromAxisAngle(UP, this.yaw))
+    world.premultiply(new THREE.Quaternion().setFromAxisAngle(UP, this.yaw + speech.yaw))
+    // Lift (or lower) the face toward the target: the seated clips tip the head down toward the
+    // laptop, which hides a speaker's mouth from the presenter camera. Most of the gap is closed,
+    // so the clip's small nods still show.
+    let correction = 0
+    if (this.faceAxis && elevation !== null) {
+      const facing = this.faceAxis.clone().applyQuaternion(world)
+      const current = Math.asin(THREE.MathUtils.clamp(facing.y, -1, 1))
+      correction = THREE.MathUtils.clamp((elevation - current) * 0.8, -0.25, 0.5)
+    }
+    this.pitch = THREE.MathUtils.damp(this.pitch, correction, 4, dt)
+    const lift = this.pitch + speech.pitch
+    if (this.faceAxis && Math.abs(lift) > 1e-4) {
+      const facing = this.faceAxis.clone().applyQuaternion(world)
+      const axis = new THREE.Vector3().crossVectors(facing, UP)
+      if (axis.lengthSq() > 1e-6) world.premultiply(new THREE.Quaternion().setFromAxisAngle(axis.normalize(), lift))
+    }
     const parent = this.head.parent.getWorldQuaternion(new THREE.Quaternion())
     this.head.quaternion.copy(parent.invert().multiply(world))
   }
@@ -157,37 +287,64 @@ class Avatar {
     return this.head ? this.head.getWorldPosition(out) : out.copy(this.group.position).setY(1.2)
   }
 
-  /** Remember where the seated clip puts each hand; talking gestures are offsets from it. */
-  measureRest() {
-    if (!this.mixer) return
-    this.animate(0)
-    for (const arm of this.arms) arm.rest = this.group.worldToLocal(arm.hand.getWorldPosition(new THREE.Vector3()))
-  }
-
   /**
-   * Two bone IK that keeps the hands resting on the tabletop in every mood, applied after the
-   * animation pose. The body still plays the full clip; only a small share of the clip's hand
-   * movement (GESTURE_SCALE) is kept, so the hands stay calm.
+   * Two bone IK that keeps the hands in place in every mood, applied after the animation pose: the right
+   * hand on the mouse beside the laptop, the left resting on the thigh under the table. The body still plays
+   * the full clip (shoulders, torso and head move as it talks); the hands themselves stay put.
    */
   placeHands() {
     const w = this.handWeight
     if (w < 0.01) return
     const toWorld = this.group.getWorldQuaternion(new THREE.Quaternion())
+    const local = (bone: THREE.Object3D) => this.group.worldToLocal(bone.getWorldPosition(new THREE.Vector3()))
+    const height = (y: number) => this.group.localToWorld(new THREE.Vector3(0, y, 0)).y
     for (const arm of this.arms) {
-      const animated = this.group.worldToLocal(arm.hand.getWorldPosition(new THREE.Vector3()))
-      const gesture = animated.clone().sub(arm.rest).multiplyScalar(GESTURE_SCALE)
-      const target = new THREE.Vector3(HAND_REST.x * arm.side, HAND_REST.y, HAND_REST.z).add(gesture)
-      target.y = Math.max(target.y, HAND_REST.y)
+      const onMouse = arm.side === MOUSE_SIDE
+      const animated = local(arm.hand)
+      let target: THREE.Vector3
+      let forward: THREE.Vector3
+      if (onMouse) {
+        target = new THREE.Vector3(MOUSE_WRIST.x, MOUSE_WRIST.y, MOUSE_WRIST.z)
+        // Straight along the mouse, tipping down over it.
+        forward = new THREE.Vector3(0.02, -0.16, 1)
+      } else {
+        // On top of the thigh, fingers toward the knee.
+        const hip = local(arm.thigh)
+        const knee = local(arm.knee)
+        target = hip.clone().lerp(knee, LAP_ALONG)
+        target.y += THIGH + WRIST_CLEARANCE
+        forward = knee.sub(hip)
+      }
       target.lerpVectors(animated, target, w)
       const pole = new THREE.Vector3(0.6 * arm.side, -0.5, -0.6).normalize().applyQuaternion(toWorld)
       solveTwoBone(arm, this.group.localToWorld(target), pole)
-      // Fingers point forward and slightly inward, level with the tabletop.
-      orientHand(arm, new THREE.Vector3(-0.15 * arm.side, -0.02, 1).normalize().applyQuaternion(toWorld), w)
+      orientHand(arm, forward.normalize().applyQuaternion(toWorld), w)
     }
-    for (const finger of this.fingers) finger.bone.quaternion.slerp(finger.open, FINGER_RELAX * w)
-    // Contact: no finger joint may end inside the tabletop; bend it up to lie on the surface.
-    const floor = this.group.localToWorld(new THREE.Vector3(0, FINGER_FLOOR, 0)).y
-    for (const chain of this.fingerChains) layOnSurface(chain, floor, w)
+    for (const finger of this.fingers) finger.bone.quaternion.slerp(finger.open, (finger.side === MOUSE_SIDE ? MOUSE_FINGER_RELAX : FINGER_RELAX) * w)
+    // Contact: no finger joint may end inside what its hand lies on (the mouse and the tabletop round it, or the
+    // thigh); bend it up to lie on the surface.
+    const surfaces = new Map<number, (point: THREE.Vector3) => number>()
+    for (const arm of this.arms) {
+      if (arm.side === MOUSE_SIDE) {
+        gatherFingers(arm, this.fingerChains.filter((chain) => chain.side === arm.side && !chain.thumb).map((chain) => chain.bones), MOUSE_FINGER_GATHER * w)
+        surfaces.set(arm.side, (point) => {
+          const at = this.group.worldToLocal(point.clone())
+          return height(TABLE.height + mouseTop(at.x, at.z) + FINGER_CLEARANCE)
+        })
+      } else {
+        const hip = local(arm.thigh)
+        const knee = local(arm.knee)
+        surfaces.set(arm.side, (point) => {
+          const at = this.group.worldToLocal(point.clone())
+          const along = THREE.MathUtils.clamp((at.z - hip.z) / (knee.z - hip.z || 1), 0, 1)
+          return height(THREE.MathUtils.lerp(hip.y, knee.y, along) + THIGH + FINGER_CLEARANCE)
+        })
+      }
+    }
+    for (const chain of this.fingerChains) {
+      const surface = surfaces.get(chain.side)
+      if (surface) layOnSurface(chain.bones, surface, w)
+    }
   }
 
   arms: Arm[] = []
@@ -220,16 +377,21 @@ class Avatar {
       const middle = bones.get(`${side}HandMiddle1`)
       const index = bones.get(`${side}HandIndex1`)
       const pinky = bones.get(`${side}HandPinky1`)
-      if (!upper || !fore || !hand || !middle || !index || !pinky) return []
-      return [{ side: side === 'Left' ? 1 : -1, upper, fore, hand, middle, index, pinky, rest: new THREE.Vector3() } as Arm]
+      const thigh = bones.get(`${side}UpLeg`)
+      const knee = bones.get(`${side}Leg`)
+      if (!upper || !fore || !hand || !middle || !index || !pinky || !thigh || !knee) return []
+      return [{ side: side === 'Left' ? 1 : -1, upper, fore, hand, middle, index, pinky, thigh, knee } as Arm]
     })
-    this.fingerChains = ['Left', 'Right'].flatMap((side) => ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'].map((finger) =>
-      [1, 2, 3, 4].map((joint) => bones.get(`${side}Hand${finger}${joint}`)).filter((bone): bone is THREE.Bone => Boolean(bone))))
-      .filter((chain) => chain.length >= 2)
+    const sideOf = (name: string): 1 | -1 => name.startsWith('Left') ? 1 : -1
+    this.fingerChains = ['Left', 'Right'].flatMap((side) => ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'].map((finger) => ({
+      side: sideOf(side),
+      thumb: finger === 'Thumb',
+      bones: [1, 2, 3, 4].map((joint) => bones.get(`${side}Hand${finger}${joint}`)).filter((bone): bone is THREE.Bone => Boolean(bone)),
+    }))).filter((chain) => chain.bones.length >= 2)
     // Called before any clip plays, so current rotations are the open-handed bind pose.
     this.fingers = [...bones.entries()]
       .filter(([name]) => /^(Left|Right)Hand(Thumb|Index|Middle|Ring|Pinky)[1-3]$/.test(name))
-      .map(([, bone]) => ({ bone, open: bone.quaternion.clone() }))
+      .map(([name, bone]) => ({ bone, open: bone.quaternion.clone(), side: sideOf(name) }))
     this.overridden = [
       ...this.arms.flatMap((arm) => [arm.upper, arm.fore, arm.hand]),
       ...this.fingers.map((f) => f.bone),
@@ -238,9 +400,10 @@ class Avatar {
     this.animatedPose = this.overridden.map((bone) => bone.quaternion.clone())
   }
 
-  private fingers: { bone: THREE.Bone; open: THREE.Quaternion }[] = []
-  /** Each finger and thumb as its joints from knuckle to tip, for the tabletop contact step. */
-  private fingerChains: THREE.Bone[][] = []
+  /** Finger joints with their open (bind) rotation; `side` is +1 for the character's left hand, -1 for the right. */
+  private fingers: { bone: THREE.Bone; open: THREE.Quaternion; side: 1 | -1 }[] = []
+  /** Each finger and thumb as its joints from knuckle to tip, for the contact step. */
+  private fingerChains: { side: 1 | -1; thumb: boolean; bones: THREE.Bone[] }[] = []
 }
 
 interface Arm {
@@ -252,7 +415,9 @@ interface Arm {
   middle: THREE.Bone
   index: THREE.Bone
   pinky: THREE.Bone
-  rest: THREE.Vector3
+  /** The same side's hip and knee joints: the thigh the resting hand lies on. */
+  thigh: THREE.Bone
+  knee: THREE.Bone
 }
 
 const position = (bone: THREE.Object3D) => bone.getWorldPosition(new THREE.Vector3())
@@ -288,12 +453,14 @@ function solveTwoBone(arm: Arm, target: THREE.Vector3, pole: THREE.Vector3) {
 
 /**
  * Bend each joint of a finger up just enough that the next joint stays at or above the surface
- * height, so fingers rest on the tabletop instead of sinking into it.
+ * height, so fingers rest on the tabletop (or on what lies on it) instead of sinking in. `surface`
+ * is a height, or the height under a world point.
  */
-function layOnSurface(chain: THREE.Bone[], floor: number, weight: number) {
+function layOnSurface(chain: THREE.Bone[], surface: number | ((point: THREE.Vector3) => number), weight: number) {
   for (let i = 0; i < chain.length - 1; i++) {
     const from = position(chain[i])
     const to = position(chain[i + 1])
+    const floor = typeof surface === 'number' ? surface : surface(to)
     if (to.y >= floor) continue
     const dir = to.clone().sub(from)
     const length = dir.length()
@@ -303,6 +470,23 @@ function layOnSurface(chain: THREE.Bone[], floor: number, weight: number) {
     flat.setLength(Math.sqrt(Math.max(0, length * length - rise * rise)))
     const wanted = flat.setY(rise)
     rotateWorld(chain[i], new THREE.Quaternion().slerp(new THREE.Quaternion().setFromUnitVectors(dir.normalize(), wanted.normalize()), weight))
+  }
+}
+
+/**
+ * Bring the fingers of an open hand together: turn each finger at its knuckle, in the plane of the palm,
+ * toward the direction the hand points, taking out `amount` of its spread.
+ */
+function gatherFingers(arm: Arm, chains: THREE.Bone[][], amount: number) {
+  const dir = position(arm.middle).sub(position(arm.hand)).normalize()
+  const normal = position(arm.index).sub(position(arm.pinky)).cross(dir).normalize()
+  const inPalm = (v: THREE.Vector3) => v.addScaledVector(normal, -v.dot(normal)).normalize()
+  const ahead = inPalm(dir.clone())
+  for (const chain of chains) {
+    if (chain.length < 2) continue
+    const finger = inPalm(position(chain[1]).sub(position(chain[0])))
+    const spread = Math.atan2(normal.dot(finger.clone().cross(ahead)), finger.dot(ahead))
+    rotateWorld(chain[0], new THREE.Quaternion().setFromAxisAngle(normal, spread * amount))
   }
 }
 
@@ -350,6 +534,7 @@ export class Boardroom {
   room: THREE.Object3D | null = null
   private laptops: THREE.Object3D[] = []
   private consoles: THREE.Object3D[] = []
+  private mice: THREE.Object3D[] = []
   private bezel!: THREE.Mesh
   private screen!: THREE.Mesh
   private screenCanvas = document.createElement('canvas')
@@ -376,11 +561,13 @@ export class Boardroom {
   private userControlUntil = 0
   private frame = 0
   private resizeObserver: ResizeObserver
-  private loader = new GLTFLoader()
+  /** The models are meshopt compressed (tools/optimize-models.mjs), so the loader needs the decoder. */
+  private loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
   private seatOffset = new THREE.Vector3(0, 0.47, -0.08)
   onProgress: (loaded: number, total: number) => void = () => {}
 
   constructor(container: HTMLElement) {
+    mark('construct')
     this.container = container
     // WebGPU where the browser supports it, with three.js falling back to WebGL2 by itself.
     this.renderer = new THREE.WebGPURenderer({ antialias: false, powerPreference: 'high-performance' })
@@ -450,6 +637,7 @@ export class Boardroom {
     if (this.disposed) return
     const backend = this.renderer.backend as { isWebGPUBackend?: boolean }
     this.backend = backend.isWebGPUBackend ? 'WebGPU' : 'WebGL2'
+    mark('renderer')
     console.info('[boardroom] renderer backend:', this.backend)
 
     // Image based lighting: soft reflections and bounce light for every PBR material.
@@ -460,6 +648,7 @@ export class Boardroom {
     pmrem.dispose()
 
     this.buildPost()
+    mark('environment')
     this.started = true
     if (this.active) this.renderer.setAnimationLoop(() => this.render())
   }
@@ -526,6 +715,7 @@ export class Boardroom {
       this.chairs[index]?.position.copy(this.chairPosition(avatar))
       if (this.laptops[index]) this.laptops[index].visible = Boolean(seat)
       if (this.consoles[index]) this.consoles[index].visible = Boolean(seat)
+      if (this.mice[index]) this.mice[index].visible = Boolean(seat)
       // Your own character faces away from the overview camera, so it needs no tag.
       this.tags.set(index, seat && !seat.isSelf ? {
         name: seat.name,
@@ -535,6 +725,7 @@ export class Boardroom {
         speaking: seat.talking,
         away: !seat.connected,
       } : null)
+      avatar.talking = Boolean(seat?.talking)
       if (seat) { this.loadCharacter(index); avatar.setMood(seat.mood) }
     })
     const agent = view.agent
@@ -553,8 +744,12 @@ export class Boardroom {
   // ---- loading ----
 
   /** A model from the shared downloads (models embed their textures, so no resource path is needed). */
-  private async gltf(url: string): Promise<GLTF> {
-    return this.loader.parseAsync(await fetchAsset(url), '')
+  private async gltf(url: string, priority: 'auto' | 'low' = 'auto'): Promise<GLTF> {
+    const bytes = await fetchAsset(url, priority)
+    const begun = performance.now()
+    const gltf = await this.loader.parseAsync(bytes, '')
+    performance.measure(`board3d:parse:${url.split('/').pop()}`, { start: begun, end: performance.now() })
+    return gltf
   }
 
   /** The shared animation clips; every character waits for them before it can sit. */
@@ -586,13 +781,14 @@ export class Boardroom {
       const [gltf, { animations: clips }] = await Promise.all([this.gltf(`${MODELS}characters/${CHARACTER_IDS[index]}.glb`), library])
       if (this.disposed) return
       const avatar = this.avatars[index]
-      avatar.attach(gltf, clips)
+      avatar.attach(gltf, clips, CHARACTER_IDS[index])
       if (this.view?.seats[index]) avatar.setMood(this.view.seats[index].mood)
       if (this.attached === 0) {
         this.calibrateSeat(avatar)
         this.avatars.forEach((other, seat) => this.chairs[seat]?.position.copy(this.chairPosition(other)))
       }
       this.attached += 1
+      mark(`character:${index}`)
       this.reportProgress()
       this.loadedAtFrame = this.frame
     })()
@@ -604,8 +800,9 @@ export class Boardroom {
   /** Measure where the seated pose puts the hips so chairs sit under every character. */
   private calibrateSeat(avatar: Avatar) {
     if (!avatar.mixer || !avatar.hips) return
-    avatar.mixer.update(0)
-    avatar.group.updateMatrixWorld(true)
+    // Through `animate`, not the mixer directly: it records the seated pose the hand placement starts from each
+    // frame. Updating the mixer alone left this one character starting from its bind pose, with a different arm twist.
+    avatar.animate(0)
     const hips = avatar.group.worldToLocal(avatar.hips.getWorldPosition(new THREE.Vector3()))
     this.seatOffset.set(hips.x, Math.max(0.38, hips.y - 0.1), hips.z - 0.06)
   }
@@ -624,7 +821,7 @@ export class Boardroom {
       const load = async (word: PropWord, castShadow = false) => {
         const url = propUrl(manifest.models, word)
         if (!url) return null
-        const gltf = await this.gltf(url)
+        const gltf = await this.gltf(url, 'low')
         gltf.scene.traverse((o) => {
           if ((o as THREE.Mesh).isMesh) {
             o.castShadow = castShadow
@@ -667,6 +864,7 @@ export class Boardroom {
         loading.laptop.then((model) => this.swapLaptops(model)),
         loading.console.then((model) => this.placeConsoles(model)),
       ])
+      mark('props')
     } catch (error) {
       console.warn('[boardroom] props not loaded', error)
     }
@@ -688,14 +886,15 @@ export class Boardroom {
    * skyline panorama, and `Emit_*` meshes are pushed above 1 so the bloom pass makes them glow.
    */
   private async loadRoom() {
-    // The room model downloads while its settings file is read.
+    // The room model downloads while its settings file is read, and the skyline while the room is parsed.
     const room = this.gltf(`${MODELS}room/room.glb`)
     room.catch(() => undefined)
     try {
-      const response = await fetch(`${MODELS}room/room.json`)
-      if (!response.ok || !response.headers.get('content-type')?.includes('json')) return
-      type Sky = { file: string; u_facing_minus_x?: number; three_background_rotation_y_rad_suggested?: number }
-      const info = (await response.json()) as { sky?: string | Sky; emissive_boost?: number }
+      const info = await roomManifest()
+      if (!info) { this.placeholderFog(); return }
+      const skyInfo = roomSky(info)
+      const skyLoading = skyInfo ? this.skyTexture(skyInfo.url) : null
+      skyLoading?.catch(() => undefined)
       const gltf = await room
       const boost = info.emissive_boost ?? 3
       gltf.scene.traverse((object) => {
@@ -721,25 +920,47 @@ export class Boardroom {
           mesh.material = new THREE.MeshBasicMaterial({ color: glow.clone().multiplyScalar(boost) })
         }
       })
-      const skyInfo: Sky | null = typeof info.sky === 'string' ? { file: info.sky } : info.sky ?? null
-      if (skyInfo) {
-        // room.json may give the sky as a repository path or as a path under public/.
-        const file = skyInfo.file
-        const relative = file.includes('public/') ? file.split('public/')[1] : file.replace(/^\//, '')
-        const sky = await new THREE.TextureLoader().loadAsync(`${import.meta.env.BASE_URL}${relative}`)
-        sky.mapping = THREE.EquirectangularReflectionMapping
-        sky.colorSpace = THREE.SRGBColorSpace
-        this.scene.background = sky
+      if (skyInfo && skyLoading) {
+        this.scene.background = await skyLoading
         // three.js samples u = 0.5 + atan2(z, x) / 2pi, so -X looks at u = 0; rotate the chosen u there.
         this.scene.backgroundRotation.y = skyInfo.three_background_rotation_y_rad_suggested ?? Math.PI + Math.PI * 2 * ((skyInfo.u_facing_minus_x ?? 0.5) - 0.5)
-        this.scene.fog = null
-      }
+      } else this.placeholderFog()
       this.shell.visible = false
       this.scene.add(gltf.scene)
       this.room = gltf.scene
+      mark('room')
     } catch (error) {
       console.warn('[boardroom] baked room unavailable, keeping the placeholder room', error)
+      this.placeholderFog()
     }
+  }
+
+  /**
+   * The skyline panorama from the shared downloads. Where the browser can flip a bitmap while decoding, it is
+   * decoded off the main thread; an image element was decoded on the main thread by the first frame that drew it.
+   */
+  private async skyTexture(url: string) {
+    const bytes = await fetchAsset(url)
+    const type = url.endsWith('.webp') ? 'image/webp' : url.endsWith('.png') ? 'image/png' : 'image/jpeg'
+    const blob = new Blob([bytes], { type })
+    let sky: THREE.Texture
+    if (bitmapsFlip()) {
+      // Flipped while decoding and not at upload: the WebGL2 fallback cannot flip an ImageBitmap.
+      sky = new THREE.Texture(await createImageBitmap(blob, { imageOrientation: 'flipY' }))
+      sky.flipY = false
+      sky.needsUpdate = true
+    } else {
+      const source = URL.createObjectURL(blob)
+      try { sky = await new THREE.TextureLoader().loadAsync(source) } finally { URL.revokeObjectURL(source) }
+    }
+    sky.mapping = THREE.EquirectangularReflectionMapping
+    sky.colorSpace = THREE.SRGBColorSpace
+    return sky
+  }
+
+  /** Distance haze for the plain backdrop, added only when there is no skyline panorama to look at. */
+  private placeholderFog() {
+    this.scene.fog = new THREE.Fog('#e9e5da', 14, 30)
   }
 
   private async placeProp(model: THREE.Object3D | null, position: THREE.Vector3, yaw: number) {
@@ -809,7 +1030,8 @@ export class Boardroom {
 
   private buildRoom() {
     this.scene.background = new THREE.Color('#e9e5da')
-    this.scene.fog = new THREE.Fog('#e9e5da', 14, 30)
+    // No fog here: fog is part of every lit material's shader, so removing it when the baked room arrives
+    // made three.js rebuild the shaders of every character and prop a second time (see `placeholderFog`).
 
     const hemi = new THREE.HemisphereLight('#fffaf0', '#7a6a58', 0.85)
     this.scene.add(hemi)
@@ -903,6 +1125,10 @@ export class Boardroom {
     const leather = new THREE.MeshStandardMaterial({ color: '#1d1d1f', roughness: 0.55 })
     const steel = new THREE.MeshStandardMaterial({ color: '#8a8d90', roughness: 0.3, metalness: 0.8 })
     const laptopBody = new THREE.MeshStandardMaterial({ color: '#b9bcc0', roughness: 0.35, metalness: 0.6 })
+    // The mouse under each right hand: the upper half of an ellipsoid, pale so it reads against the walnut top
+    // and beneath the hand.
+    const mouseShape = new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2)
+    const mouseBody = new THREE.MeshStandardMaterial({ color: '#d7dade', roughness: 0.4, metalness: 0.15 })
     for (const avatar of this.avatars) {
       const chair = new THREE.Group()
       const seat = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.09, 0.5), leather)
@@ -935,6 +1161,16 @@ export class Boardroom {
       laptop.traverse((o) => (o.castShadow = true))
       this.laptops.push(laptop)
       this.scene.add(laptop)
+
+      const mouse = new THREE.Mesh(mouseShape, mouseBody)
+      mouse.scale.set(MOUSE.halfWidth, MOUSE.height, MOUSE.halfLength)
+      // Seat space +X is the character's left, so the mouse (negative x) lies to their right.
+      mouse.position.copy(avatar.seat.position).add(new THREE.Vector3(MOUSE.x, 0, MOUSE.z).applyAxisAngle(UP, avatar.seat.yaw)).setY(TABLE.height + 0.002)
+      mouse.rotation.y = avatar.seat.yaw
+      mouse.castShadow = true
+      mouse.receiveShadow = true
+      this.mice.push(mouse)
+      this.scene.add(mouse)
     }
   }
 
@@ -1091,12 +1327,17 @@ export class Boardroom {
     // Everyone looks at whoever holds the floor: the agent's orb at the hub, or the member in focus.
     const lookTarget = view?.agent ? this.hubAnchor() : focusHead
 
+    // What this window hears of the members' voices. While an agent holds the floor the playing audio is the
+    // agent's, so no character's mouth may follow it.
+    const voice = view?.agent ? null : readVoice()
+
     for (const avatar of this.avatars) {
       if (!avatar.mixer || !avatar.group.visible) continue
       avatar.animate(dt)
+      avatar.updateFace(dt, time, voice)
       avatar.placeHands()
       const target = avatar === focus ? this.camera.position : lookTarget
-      avatar.lookAt(target, dt)
+      avatar.lookAt(target, dt, time)
     }
 
     // Presenter camera: glide to whoever is talking (a member or the hub agent) and back to the
@@ -1117,6 +1358,7 @@ export class Boardroom {
     if (this.frame % 6 === 0) this.drawScreen()
 
     this.post.render()
+    if (this.frame === 1) mark('first-frame')
     this.camera.updateMatrixWorld()
     const anchors = this.avatars.map((avatar) => (avatar.model && avatar.group.visible ? avatar.headPosition().add(new THREE.Vector3(0, 0.27, 0)) : null))
     anchors.push(view?.agent ? this.hubAnchor().add(new THREE.Vector3(0, 0.2, 0)) : null)

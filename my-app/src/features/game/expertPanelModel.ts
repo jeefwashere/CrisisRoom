@@ -125,7 +125,7 @@ export function expertPersona(kind: string, advisers: readonly Adviser[] = []): 
 /** Footer label describing where the takes came from. Empty until at least one take is ready. */
 export function panelSourceLabel(experts: readonly ExpertTake[]): string {
     const sources = experts.filter((take) => take.status === 'ready').map((take) => take.source)
-    if (sources.includes('vertex')) return sources.includes('offline') ? 'Live Gemini (Vertex AI) · voiced by ElevenLabs · some replies offline' : 'Live Gemini (Vertex AI) · voiced by ElevenLabs'
+    if (sources.includes('agent')) return sources.includes('offline') ? 'Live ElevenLabs agents (GPT Terra) · voiced by ElevenLabs · some replies offline' : 'Live ElevenLabs agents (GPT Terra) · voiced by ElevenLabs'
     if (sources.includes('hosted')) return 'AI reply'
     if (sources.includes('offline')) return 'Offline reply'
     return ''

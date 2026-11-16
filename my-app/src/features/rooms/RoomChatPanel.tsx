@@ -17,7 +17,7 @@ export type ChatDecision = {
 }
 
 const DECISION_COPY = {
-    target: 'Your decision', label: 'Your private decision', placeholder: `${DECISION_PROMPT} (Enter to submit; only you see it)`,
+    target: 'Your decision', label: 'Your private decision', placeholder: `${DECISION_PROMPT} (Enter to submit)`,
     note: 'Only you see your decision', submit: 'Submit decision', replace: 'Replace decision',
     failed: 'Your decision could not be saved. Please try again.', limit: DECISION_LIMIT,
 }
@@ -54,10 +54,10 @@ export default function RoomChatPanel({ room, scenarios, chat, compact = false, 
     // Round 1 decisions are private records shown in the decision panel and the report, not chat messages.
     const records = visibleRoomChatEntries(state.records, state.recordings)
     return <>
-        {!compact && <p className="room-chat-note">Shared with everyone in this room. Committed messages remain in the session record.</p>}
+        {!compact && <p className="room-chat-note">Shared with everyone in this room.</p>}
         <div className="room-chat-history" role="log" aria-label="Room chat history" aria-live="polite" aria-relevant="additions">
             {!state.loaded && !state.historyError && <p role="status">Loading conversation…</p>}
-            {state.loaded && records.length === 0 && <p className="room-chat-empty">No messages yet. Start the conversation.</p>}
+            {state.loaded && records.length === 0 && <p className="room-chat-empty">No messages yet.</p>}
             {records.map((entry) => {
                 const member = room.members.find((item) => item.member_id === entry.member_id)
                 const role = scenario?.roles.find((item) => item.role_id === entry.role_id)?.name ?? entry.role_id
@@ -69,7 +69,7 @@ export default function RoomChatPanel({ room, scenarios, chat, compact = false, 
             })}
         </div>
         {state.historyError && <p className="room-chat-error" role="alert">History refresh: {state.historyError} Reconnecting automatically.</p>}
-        {ended ? <p className="room-chat-note" role="status">This session has ended. Its committed records remain available.</p> : <form className={`room-chat-compose${deciding ? ' is-decision' : ''}`} onSubmit={(event) => { event.preventDefault(); send() }}>
+        {ended ? <p className="room-chat-note" role="status">This session has ended.</p> : <form className={`room-chat-compose${deciding ? ' is-decision' : ''}`} onSubmit={(event) => { event.preventDefault(); send() }}>
             {decision && <div className="room-chat-target" role="radiogroup" aria-label="Send to">
                 <button type="button" role="radio" aria-checked={deciding} className={deciding ? 'is-active' : ''} onClick={() => setTarget('decision')}>{copy.target}</button>
                 <button type="button" role="radio" aria-checked={!deciding} className={!deciding ? 'is-active' : ''} onClick={() => setTarget('room')}>Message everyone</button>
@@ -86,6 +86,6 @@ export default function RoomChatPanel({ room, scenarios, chat, compact = false, 
         </form>}
         {deciding && decisionError && <p className="room-chat-error" role="alert">{decisionError}</p>}
         {state.error && <p className="room-chat-error" role="alert">{state.error}</p>}
-        {state.retry && <div className="room-chat-retry"><p>The server response was not confirmed. Retry checks the same message without adding a duplicate.</p><button type="button" disabled={state.sending} onClick={() => void store.retry()}>Retry original message</button></div>}
+        {state.retry && <div className="room-chat-retry"><p>Not confirmed. Retry sends the same message once.</p><button type="button" disabled={state.sending} onClick={() => void store.retry()}>Retry original message</button></div>}
     </>
 }

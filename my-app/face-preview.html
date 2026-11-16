@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Boardroom speaking faces preview (dev only)</title>
+  <style>
+    html, body, #root { margin: 0; height: 100%; background: #111; }
+    #panel { position: absolute; z-index: 20; top: 10px; right: 10px; width: 230px; padding: 12px 14px; border-radius: 10px; background: rgba(15, 17, 20, .88); font: 13px system-ui, sans-serif; color: #eee; }
+    #panel h1 { font-size: 14px; margin: 0 0 8px; color: #eee; }
+    #panel label { display: block; margin: 8px 0 3px; color: #a9b1ba; }
+    #panel select, #panel button, #panel input { width: 100%; box-sizing: border-box; padding: 5px; background: #2a2f36; color: #eee; border: 1px solid #444b55; border-radius: 6px; }
+    #panel button { margin-top: 10px; cursor: pointer; }
+    #panel p { color: #a9b1ba; line-height: 1.4; margin: 10px 0 0; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/dev/facePreview.tsx"></script>
+</body>
+</html>

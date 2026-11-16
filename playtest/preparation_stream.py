@@ -1,4 +1,4 @@
-"""Cancellable PDF grounded Gemini text and concurrent ElevenLabs audio streams."""
+"""Cancellable PDF grounded agent text and concurrent ElevenLabs audio streams."""
 import asyncio
 import base64
 from copy import deepcopy

@@ -6,7 +6,7 @@ import { audioDurationMs } from './useAutoResponse'
 import type { AutoPlayback, AutoResponseState } from './useAutoResponse'
 
 /**
- * "AI reply" during the Round 1 individual decision: Vertex writes this member's decision for their role from what the
+ * "AI reply" during the Round 1 individual decision: an ElevenLabs agent writes this member's decision for their role from what the
  * board said, it is spoken in their role voice in this window only (decisions are private), then saved as their
  * decision. Mirrors `usePrivateAutoResponse`. The member can still type or dictate their own decision in Chat instead.
  */

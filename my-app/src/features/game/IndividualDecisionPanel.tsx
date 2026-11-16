@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { RoomSnapshot } from '../../services/rooms'
-import { DECISION_LIMIT, DECISION_PROMPT, boardRows, canSubmitDecision, submittedCount, waitingSummary } from './individualDecisionModel'
+import { DECISION_LIMIT, DECISION_PROMPT, boardRows, canSubmitDecision, submittedCount } from './individualDecisionModel'
 import type { BoardRow } from './individualDecisionModel'
 import { appendTranscript } from './dictationModel'
 import type { useDictation } from './useDictation'
@@ -59,14 +59,14 @@ export default function IndividualDecisionPanel({ room, pending, act, notice, di
             </div>
         </header>
 
-        {!canSubmit && !recorded && <p className="vote-note">You are observing this round. Only members taking part in this round write a decision.</p>}
+        {!canSubmit && !recorded && <p className="vote-note">You are observing this round.</p>}
 
         {showForm && <form className="decision-form" onSubmit={(event) => { event.preventDefault(); void submit() }}>
             <label className="decision-field">
                 <span className="decision-label">Your decision{roleName ? ` as ${roleName}` : ''}</span>
                 <textarea rows={6} maxLength={DECISION_LIMIT} required autoFocus={editing} aria-describedby="decision-help" placeholder={DECISION_PROMPT}
                     value={draft} onChange={(event) => setDraft(event.target.value)} />
-                <span className="decision-helper" id="decision-help">Only you see your text. Use Dictate below to speak it.</span>
+                <span className="decision-helper" id="decision-help">Only you see this.</span>
             </label>
             {(dictation.listening || dictation.note) && <div className="decision-voice">
                 {dictation.listening && <span className="decision-listening" role="status"><span className="vote-waiting-dot" aria-hidden="true" />Listening…</span>}
@@ -82,7 +82,7 @@ export default function IndividualDecisionPanel({ room, pending, act, notice, di
 
         {recorded && !editing && <div className="decision-recorded">
             <div className="vote-confirmed">
-                <p><span className="vote-badge vote-badge--voted">Submitted</span> Your decision is recorded. You can edit it until decisions close.</p>
+                <p><span className="vote-badge vote-badge--voted">Submitted</span> Your decision is recorded.</p>
                 {canSubmit && <button type="button" className="vote-secondary" disabled={pending} onClick={() => { setDraft(recorded.text); setFailed(false); setEditing(true) }}>Edit</button>}
             </div>
             <p className="decision-text">{recorded.text}</p>
@@ -97,8 +97,8 @@ export default function IndividualDecisionPanel({ room, pending, act, notice, di
 
 /**
  * Round 1 decision status, without a separate text box: the member gives their decision with AI reply (spoken in their
- * role voice, heard only in their own window) or types it in Chat. Shows their recorded decision and who the round is
- * still waiting for, themselves included.
+ * role voice, heard only in their own window) or types it in Chat. Shows their recorded decision and, in the board
+ * list, who the round is still waiting for, themselves included.
  */
 export function DecisionStatusPanel({ room, speaking, caption, saving }: { room: RoomSnapshot; speaking: boolean; caption: string; saving: boolean }) {
     const game = room.game
@@ -115,17 +115,16 @@ export function DecisionStatusPanel({ room, speaking, caption, saving }: { room:
                 <h3 id="decision-status-title">Your individual decision{roleName ? ` as ${roleName}` : ''}</h3>
             </div>
         </header>
-        {canSubmit ? <p className="vote-note">Give your decision with <strong>AI reply</strong> in the control bar (spoken in your voice; only you hear it) or type it in <strong>Chat</strong>. Only you see your decision.</p>
-            : !recorded && <p className="vote-note">You are observing this round. Only members taking part in this round give a decision.</p>}
-        {(speaking || saving) && caption && <p className="decision-compact"><span className="vote-badge decision-badge--waiting">{saving ? 'Saving…' : 'Speaking'}</span> {saving ? 'Saving your decision…' : 'Speaking your decision; it is saved when it finishes.'}</p>}
+        {canSubmit ? <p className="vote-note">Decide with <strong>AI reply</strong> or <strong>Chat</strong>. Only you see it.</p>
+            : !recorded && <p className="vote-note">You are observing this round.</p>}
+        {(speaking || saving) && caption && <p className="decision-compact"><span className="vote-badge decision-badge--waiting">{saving ? 'Saving…' : 'Speaking'}</span> Your decision</p>}
         {recorded && !speaking && !saving && <div className="decision-compact">
-            <p><span className="vote-badge vote-badge--voted">Submitted</span> Your decision is recorded.{canSubmit ? ' AI reply or Chat replaces it.' : ''}</p>
+            <p><span className="vote-badge vote-badge--voted">Submitted</span> Your decision is recorded.</p>
             {/* Kept out of the way: the full text only on request. */}
             <details className="decision-peek"><summary>View my decision</summary><p className="decision-text">{recorded.text}</p></details>
         </div>}
         {rows.length > 0 && <div className="decision-board">
             <p className="vote-eyebrow">{progress.done} of {progress.total} decisions submitted</p>
-            <p className="decision-waiting" role="status">{waitingSummary(rows)}</p>
             <BoardStatusList rows={rows} missingLabel="Deciding…" />
         </div>}
     </section>

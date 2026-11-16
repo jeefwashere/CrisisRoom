@@ -4,6 +4,7 @@ import type { RoomApi, RoomSnapshot } from '../../services/rooms'
 import { createFacilitationApi } from '../../services/facilitation'
 import type { RecordedClip } from '../../services/facilitation'
 import { clipForTurn } from '../game/savedClips'
+import { meterVoice } from '../game/voiceMeter'
 import { botDecisionStep, botSpeakingTurn, botVoteChoice, nextBotAction, turnBudgetMs } from './demoModel'
 import type { BotAction, BotActivity, BotSeat } from './demoModel'
 
@@ -31,6 +32,8 @@ function wait(ms: number, signal: AbortSignal): Promise<void> {
 function playClip(url: string, budgetMs: number, signal: AbortSignal): Promise<'played' | 'blocked'> {
     return new Promise((resolve, reject) => {
         const audio = new Audio(url)
+        // The bot's 3D character moves its mouth with its clip.
+        meterVoice(audio)
         let settled = false
         const finish = (outcome: 'played' | 'blocked' | 'aborted') => {
             if (settled) return

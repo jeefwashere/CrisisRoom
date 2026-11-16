@@ -8,7 +8,7 @@ import {
 import type { PrivateMessage, PrivateSession } from '../src/services/facilitation.ts'
 
 const agent = (id: string, kind: PrivateMessage['kind'], round: 2 | 3 = 2, extra: Partial<PrivateMessage> = {}): PrivateMessage =>
-    ({ message_id: id, author: 'agent', kind, round, step: null, text: `${id} text`, status: 'ready', source: 'vertex', speech_id: `s-${id}`, at: '', ...extra })
+    ({ message_id: id, author: 'agent', kind, round, step: null, text: `${id} text`, status: 'ready', source: 'agent', speech_id: `s-${id}`, at: '', ...extra })
 const member = (id: string, round: 2 | 3 = 2, step = 1): PrivateMessage =>
     ({ message_id: id, author: 'member', kind: 'answer', round, step, text: `${id} answer`, status: 'ready', source: null, speech_id: null, at: '' })
 

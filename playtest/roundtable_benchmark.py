@@ -46,7 +46,7 @@ def wait_job(client, clients, jid=None, kind=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--url', default='http://127.0.0.1:8788')
-    parser.add_argument('--live-models', action='store_true', help='Authorize four Vertex requests within the existing cap')
+    parser.add_argument('--live-models', action='store_true', help='Authorize four ElevenLabs agent requests within the existing cap')
     parser.add_argument('--allow-paid-transcription', action='store_true', help='One explicit Scribe fixture request, 400 credits')
     parser.add_argument('--output', default='playtest/evaluations/roundtable.json')
     args = parser.parse_args()
@@ -59,7 +59,7 @@ def main():
     ceo.join('Morgan test CEO', code)
     third.join('Sam test member', code)
     report = {'room': code, 'health_before': before, 'cases': [],
-              'method': 'Three HTTP clients, scripted contributions, live Gemma retrieval and Vertex selections. No browser controls.'}
+              'method': 'Three HTTP clients, scripted contributions, live Gemma retrieval and ElevenLabs agent selections. No browser controls.'}
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     def save():

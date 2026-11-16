@@ -18,8 +18,7 @@ COPY backend/__init__.py ./backend/__init__.py
 COPY scenarios/ ./scenarios/
 # Existing ElevenLabs adapter; no local inference models are bundled or changed.
 COPY rehearsal/ ./rehearsal/
-# Shared Vertex provider plus public participant material used by the current game.
-COPY playtest/__init__.py playtest/vertex.py ./playtest/
+# Public participant material used by the current game.
 COPY playtest/fixtures/participant-packs.json playtest/fixtures/recordings.json ./playtest/fixtures/
 COPY playtest/recordings/manifest.json playtest/recordings/*.mp3 ./playtest/recordings/
 COPY output/pdf/demo-t01-service-outage.pdf output/pdf/demo-t02-fundraising.pdf output/pdf/demo-t03-succession-payroll.pdf ./output/pdf/

@@ -126,3 +126,10 @@ The current exercise has 36 human clips including 27 added for individual decisi
 ## Single guided decision answer
 
 X20 replaces the four visible Round 1 fields with one guided answer box. Preserve explicit confirmation, member draft isolation and reviewed recorded or microphone input. The existing API stores the complete response verbatim in action and labels other fields as not separately extracted; do not infer separate reasons or evidence. Keep existing live rooms intact when updating static UI files. Read [the update](playtest/SINGLE_ANSWER_UPDATE.md).
+
+
+## ElevenLabs agents replace Vertex
+
+X52 supersedes every Vertex and Gemini approval above for both `backend/app` and `playtest/`. On Nov 16 2026 the user explicitly chose ElevenLabs agents running `gpt-6.1-terra` for all text, asked for all Gemini, Google and Vertex API use to be removed, and set a US$50 spending cap. The backend still runs the game; the agents only write. Three private agents in the user's workspace do the writing: a writer for spoken text, an analyst for repeatable JSON and a drafter for ballot options and the quiz. Read `backend/app/agent_text.py` and `docs/facilitation-api.md`.
+
+Do not reintroduce a Google, Gemini or Vertex call, key or embedding. Keep the backup model disabled on the agents, because the ElevenLabs default backup is Gemini. Keep the ElevenLabs key on the backend: every conversation uses a signed URL minted by the server and no browser receives a token. Paid agent calls stay off unless `BOARDROOM_AGENTS_ENABLED=true`. Preserve the ledger at `.local/agents/ledger.sqlite` and its 5000 cent cap; raise it only through an explicit authorization, never by deleting the ledger. The old Vertex ledgers remain on disk as records and are no longer read. `google/embeddinggemma-2` in `playtest/pdf_memory.py` is a local open model, not a Google API call, and is unchanged. Historical reports and evidence keep their original wording.

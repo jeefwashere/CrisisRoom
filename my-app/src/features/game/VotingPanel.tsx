@@ -35,14 +35,12 @@ function CustomOptionCard({ own, initialText, pending, notice, submit }: { own: 
                     <button type="button" className="vote-secondary" disabled={pending} onClick={() => { if (window.confirm('Withdraw your custom option from the ballot?')) void send('') }}>Withdraw</button>
                 </span>
             </div>
-            <p className="vote-custom-hint">Editing or withdrawing is blocked once your option has votes.</p>
             {error}
         </div>
         return <button type="button" className="vote-custom vote-custom--add" disabled={pending} onClick={() => { setFailed(false); setOpen(true) }}>
             <span className="vote-custom-plus" aria-hidden="true">+</span>
             <span className="vote-choice-body">
                 <span className="vote-choice-label">Propose your own option</span>
-                <span className="vote-choice-description">Add a response the board can vote for. An AI maps it to an outcome if it wins.</span>
             </span>
         </button>
     }
@@ -87,7 +85,6 @@ export default function VotingPanel({ room, pending, act, notice }: { room: Room
     const choices = isTie ? options.filter((option) => tied.includes(option.option_id)) : options
     const showChoices = (canVote && (!selfVote || changing)) || canBreakTie
     const draftId = draft?.phaseId === game.phase_id && choices.some((option) => option.option_id === draft.optionId) ? draft.optionId : null
-    const self = room.members.find((member) => member.member_id === room.self_member_id)
     const memberName = (memberId: string) => room.members.find((member) => member.member_id === memberId)?.display_name
     const eligible = game.eligible_member_ids.length
     const progress = isVoting ? null : ballotProgress(game.vote_counts, eligible)
@@ -117,9 +114,9 @@ export default function VotingPanel({ room, pending, act, notice }: { room: Room
             </div>
         </header>
 
-        {canVote && !selfVote && <p className="vote-decide" role="status"><span className="vote-badge vote-badge--decide">Decide now</span><span>{self?.display_name ?? 'You'}, choose a response, then confirm it before the deadline.</span></p>}
-        {isVoting && !canVote && <p className="vote-note">You are observing this vote. Only members eligible for this round can cast a ballot.</p>}
-        {canBreakTie && <p className="vote-decide" role="status"><span className="vote-badge vote-badge--decide">Decide now</span><span>The vote is tied. As CEO, choose which leading option the board adopts.</span></p>}
+        {canVote && !selfVote && <p className="vote-decide" role="status"><span className="vote-badge vote-badge--decide">Decide now</span><span>Choose a response, then confirm it.</span></p>}
+        {isVoting && !canVote && <p className="vote-note">You are observing this vote.</p>}
+        {canBreakTie && <p className="vote-decide" role="status"><span className="vote-badge vote-badge--decide">Decide now</span><span>Tied. As CEO, choose the option to adopt.</span></p>}
         {isTie && !canBreakTie && <p className="vote-waiting" role="status"><span className="vote-waiting-dot" aria-hidden="true" />Waiting for the CEO to break the tie{tied.length > 0 && tied.every((id) => known[id]) ? ` between ${tied.map((id) => known[id]).join(' and ')}` : ''}.</p>}
 
         {canVote && selfVote && !changing && <div className="vote-confirmed">
@@ -157,7 +154,7 @@ export default function VotingPanel({ room, pending, act, notice }: { room: Room
                 {proposalCard}
             </div>
             <div className="vote-confirm">
-                <p aria-live="polite">{draftId ? <>Selected: <strong>{known[draftId]}</strong></> : 'Select an option to continue.'}</p>
+                <p aria-live="polite">{draftId ? <>Selected: <strong>{known[draftId]}</strong></> : 'Select an option.'}</p>
                 <div className="vote-confirm-actions">
                     {changing && <button type="button" className="vote-secondary" disabled={pending} onClick={() => { setChangingPhase(null); setDraft(null) }}>Keep my vote</button>}
                     <button type="button" className="vote-primary" disabled={pending || !draftId || (changing && draftId === selfVote)} onClick={() => void confirm()}>
@@ -169,7 +166,7 @@ export default function VotingPanel({ room, pending, act, notice }: { room: Room
 
         {!showChoices && proposalCard}
 
-        {isVoting && <p className="vote-note">{eligible} {eligible === 1 ? 'member votes' : 'members vote'} this round. Ballots stay private until voting closes; you can change yours until the deadline.</p>}
+        {isVoting && <p className="vote-note">{eligible} {eligible === 1 ? 'member votes' : 'members vote'}. Ballots stay private until voting closes.</p>}
 
         {progress && <div className="vote-progress">
             <span>{progress.cast} of {progress.eligible} ballots cast</span>

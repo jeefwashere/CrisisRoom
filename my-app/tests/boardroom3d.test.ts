@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { BOARD_SEATS, STAGE_STORAGE_KEY, boardMembers, boardroomView, offersStageSwitch, screenSubtitle, stagePreference, viewFromSearch } from '../src/features/boardroom3d/boardroomModel.ts'
 import type { BoardMember, BoardroomInput, StageAgent } from '../src/features/boardroom3d/boardroomModel.ts'
 import { DEMO_VIEW_KEY, readDemoView, soloFrameSrc } from '../src/features/demo/demoModel.ts'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 
 const member = (id: string, name: string): BoardMember => ({ id, name, role: `${name} role`, color: '#123456', connected: true })
 const alex = member('a', 'Alex')
@@ -85,4 +86,58 @@ test('the stage switch remembers the tab choice over the URL and offers 3D for u
     assert.equal(offersStageSwitch(0), false)
     assert.equal(offersStageSwitch(10), true)
     assert.equal(offersStageSwitch(11), false)
+})
+
+// The model files as shipped. They are compressed by tools/optimize-models.mjs; these checks fail if a later
+// processing step drops part of the speaking rig or leaves a manifest pointing at a missing file.
+type GltfJson = {
+    extensionsUsed?: string[]
+    nodes: { name?: string }[]
+    skins?: { joints: number[] }[]
+    meshes?: { name?: string; extras?: { targetNames?: string[] }; primitives: { attributes: Record<string, number>; targets?: unknown[] }[] }[]
+    materials?: { name?: string }[]
+    animations?: { name?: string; channels: unknown[] }[]
+}
+const models = new URL('../public/models/', import.meta.url)
+function gltfJson(file: string): GltfJson {
+    const bytes = readFileSync(new URL(file, models))
+    assert.equal(bytes.toString('latin1', 0, 4), 'glTF', file)
+    return JSON.parse(bytes.toString('utf8', 20, 20 + bytes.readUInt32LE(12))) as GltfJson
+}
+
+test('every character file keeps the shared skeleton and the speaking rig', () => {
+    const files = readdirSync(new URL('characters/', models)).filter((name) => /^\d\d-.*\.glb$/.test(name)).sort()
+    assert.equal(files.length, BOARD_SEATS)
+    const faceTargets = ['Blink_L', 'Blink_R', 'Smile', 'Frown', 'BrowRaise', 'MouthOpen', 'MouthRound']
+    let skeleton: string[] | null = null
+    for (const file of files) {
+        const gltf = gltfJson(`characters/${file}`)
+        assert.equal(gltf.skins?.length, 1, `${file}: one skin shared by the face and the mouth interior`)
+        const joints = gltf.skins![0].joints.map((index) => gltf.nodes[index].name ?? '')
+        assert.equal(joints.length, 65, file)
+        skeleton ??= joints
+        assert.deepEqual(joints, skeleton, `${file}: same joint names in the same order as the first character`)
+        const meshes = gltf.meshes ?? []
+        const interior = meshes.find((mesh) => mesh.name?.endsWith('_mouth_interior'))
+        const face = meshes.find((mesh) => mesh !== interior)
+        assert.deepEqual(face?.extras?.targetNames, faceTargets, file)
+        assert.deepEqual(interior?.extras?.targetNames, ['MouthOpen', 'MouthRound'], file)
+        for (const mesh of [face!, interior!]) {
+            assert.equal(mesh.primitives.length, 1, file)
+            assert.equal(mesh.primitives[0].targets?.length, mesh.extras?.targetNames?.length, file)
+            assert.ok('JOINTS_0' in mesh.primitives[0].attributes && 'WEIGHTS_0' in mesh.primitives[0].attributes, `${file}: skin weights`)
+        }
+        assert.ok(gltf.materials?.some((material) => material.name === 'mouth_cavity'), `${file}: mouth_cavity material`)
+    }
+})
+
+test('the animation library and the manifests match the files on disk', () => {
+    const library = gltfJson('characters/animations.glb')
+    assert.deepEqual(library.animations?.map((clip) => clip.name).sort(), ['disbelief', 'sit', 'talk', 'typing'])
+    for (const clip of library.animations ?? []) assert.equal(clip.channels.length, 195, clip.name)
+    const props = JSON.parse(readFileSync(new URL('props/props.json', models), 'utf8')) as { models: { file: string; bytes: number }[] }
+    for (const prop of props.models) assert.equal(readFileSync(new URL(`props/${prop.file}`, models)).length, prop.bytes, prop.file)
+    const room = JSON.parse(readFileSync(new URL('room/room.json', models), 'utf8')) as { file: string; bytes: number; sky: { file: string } }
+    assert.equal(readFileSync(new URL(`room/${room.file}`, models)).length, room.bytes)
+    assert.ok(existsSync(new URL(`../${room.sky.file}`, models)), room.sky.file)
 })

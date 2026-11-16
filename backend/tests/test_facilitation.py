@@ -84,13 +84,14 @@ class FacilitationTests(unittest.IsolatedAsyncioTestCase):
                 break
             await asyncio.sleep(0.01)
         self.assertEqual(len(self.provider.prompts), 1)
-        self.assertIn('30 to 40 words', self.provider.prompts[0])
+        self.assertIn('25 to 32 words', self.provider.prompts[0])
+        self.assertIn('Keep unknown things unknown', self.provider.prompts[0])  # Not confirmed never becomes confirmed absent.
         body = (await self.clients[1].get(self.facilitation_path)).json()
         self.assertEqual(body['opening']['status'], 'ready')
         self.assertEqual(len(self.provider.prompts), 1)
 
-    async def test_opening_hedges_a_hung_vertex_request(self):
-        class Vertex:
+    async def test_opening_hedges_a_hung_agent_request(self):
+        class Agents:
             configured = True
 
             def __init__(self, plan):
@@ -103,24 +104,79 @@ class FacilitationTests(unittest.IsolatedAsyncioTestCase):
                     await asyncio.sleep(30)
                 if kind == 'fail':
                     raise RuntimeError('private provider detail')
-                return f'Vertex answer {self.calls}.'
+                return f'Agent answer {self.calls}.'
 
         timing = {'HEDGE_STARTS': (0.0, 0.05, 0.1), 'HEDGE_DEADLINE': 0.3}
         with mock.patch.multiple('backend.app.facilitation', **timing):
-            for plan, expected, calls in ((['hang', 'ok'], ('Vertex answer 2.', 'vertex'), 2),
-                                          (['fail', 'ok'], ('Vertex answer 2.', 'vertex'), 2),
-                                          (['hang', 'hang', 'ok'], ('Vertex answer 3.', 'vertex'), 3),
+            for plan, expected, calls in ((['hang', 'ok'], ('Agent answer 2.', 'agent'), 2),
+                                          (['fail', 'ok'], ('Agent answer 2.', 'agent'), 2),
+                                          (['hang', 'hang', 'ok'], ('Agent answer 3.', 'agent'), 3),
                                           (['hang', 'hang', 'hang'], ('offline text', 'offline'), 3)):
                 with self.subTest(plan=plan):
-                    vertex = Vertex(plan)
-                    service = Facilitation(self.rooms, Provider(configured=False), NarrationService(), vertex=vertex)
+                    agents = Agents(plan)
+                    service = Facilitation(self.rooms, Provider(configured=False), NarrationService(), agents=agents)
                     result = await asyncio.wait_for(service.generate('prompt', 'offline text', hedged=True), 2)
                     self.assertEqual(result, expected)
-                    self.assertEqual(vertex.calls, calls)
+                    self.assertEqual(agents.calls, calls)
             # Other lines keep one plain request.
-            vertex = Vertex(['ok'])
-            service = Facilitation(self.rooms, Provider(configured=False), NarrationService(), vertex=vertex)
-            self.assertEqual(await service.generate('prompt', 'offline text'), ('Vertex answer 1.', 'vertex'))
+            agents = Agents(['ok'])
+            service = Facilitation(self.rooms, Provider(configured=False), NarrationService(), agents=agents)
+            self.assertEqual(await service.generate('prompt', 'offline text'), ('Agent answer 1.', 'agent'))
+
+    async def test_next_rooms_opening_is_written_ahead(self):
+        class Agents:
+            configured = True
+            calls = 0
+
+            async def text(self, prompt, timeout, cap):
+                self.calls += 1
+                return f'Opening {self.calls}.'
+
+        agents = Agents()
+        service = Facilitation(self.rooms, Provider(configured=False), NarrationService(), agents=agents)
+        context = {'title': 'Cedar Bridge', 'situation': 'Outage', 'documents': [('briefing', 'Public text')], 'attached': []}
+        first = {'status': 'pending'}
+        await service._opening(first, context)
+        self.assertEqual((first['text'], first['source'], first['status']), ('Opening 1.', 'agent', 'ready'))
+        await asyncio.gather(*service.tasks)
+        self.assertEqual(agents.calls, 2)  # This room's opening, then one written for the next room.
+        second = {'status': 'pending'}
+        await service._opening(second, context)
+        # The second room speaks the opening that was already written, with no agent wait of its own.
+        self.assertEqual((second['text'], second['source']), ('Opening 2.', 'agent'))
+        await asyncio.gather(*service.tasks)
+        self.assertEqual(agents.calls, 3)
+        # Another scenario or document set never receives it, and an old one is not used.
+        other = {'status': 'pending'}
+        await service._opening(other, {**context, 'title': 'Another organisation'})
+        self.assertEqual(other['text'], 'Opening 4.')
+        await asyncio.gather(*service.tasks)
+        with mock.patch('backend.app.facilitation.PREPARED_OPENING_SECONDS', -1):
+            stale = {'status': 'pending'}
+            await service._opening(stale, context)
+            self.assertEqual(stale['text'], 'Opening 6.')
+        await service.close()
+
+    async def test_first_experts_voice_is_made_first(self):
+        service = Facilitation(self.rooms, Provider(configured=False), NarrationService(), agents=None)
+        made = []
+
+        async def whole(room_id, speech_id, text, voice):
+            made.append(('file', voice))
+
+        async def stream(room_id, speech_id, text, voice):
+            made.append(('stream', voice))
+
+        service._prewarm, service._prewarm_stream = whole, stream
+        context = {'title': 'T', 'situation': 'S', 'documents': [], 'attached': [], 'contributions': [], 'study_questions': []}
+        room = __import__('uuid').uuid4()
+        for kind in ('security', 'operations', 'governance'):
+            item = {'kind': kind, 'status': 'pending'}
+            await service._expert(item, context, room)
+            self.assertEqual(item['status'], 'ready')
+        await asyncio.gather(*service.tasks)
+        # The first speaker has the whole file path to itself; the others stream in parallel while it talks.
+        self.assertEqual(sorted(made), [('file', 'security'), ('stream', 'governance'), ('stream', 'operations')])
 
     async def test_offline_fallback_when_unconfigured_or_failing(self):
         for code, provider in (('OFFLN1', Provider(configured=False)), ('OFFLN2', Provider(fail=True))):
@@ -315,8 +371,9 @@ class ExpertPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.view())['phase'], 'individual_decision')
 
     async def test_three_grounded_experts_generated_once_for_concurrent_readers(self):
-        await self.to_panel(early_get=True)
+        # The panel now starts with the command that ends the last turn, so the model is held before that turn ends.
         self.provider.gate.clear()
+        await self.to_panel(early_get=True)
         first = await asyncio.gather(*(client.get(self.facilitation_path) for client in self.clients))
         panels = [response.json()['expert_panel'] for response in first]
         self.assertTrue(all(panel['status'] == 'pending' for panel in panels))
@@ -327,6 +384,7 @@ class ExpertPanelTests(unittest.IsolatedAsyncioTestCase):
         await self.clients[1].get(self.facilitation_path)
         prompts = self.expert_prompts()
         self.assertEqual(len(prompts), 3)
+        self.assertTrue(all('Keep unknown things unknown' in prompt for prompt in prompts))
         panel = body['expert_panel']
         self.assertEqual([item['kind'] for item in panel['experts']], ['security', 'operations', 'governance'])
         self.assertEqual([item['label'] for item in panel['experts']],

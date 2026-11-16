@@ -73,7 +73,7 @@ test('each participant has manual turn controls and only the current speaker can
  assert(!source.includes('autoTurns'));assert(!fs.readFileSync(path.join(__dirname,'../static/roundtable.html'),'utf8').includes('id="autoTurns"'));
 });
 test('unlimited health displays tracking without a false zero balance',async()=>{
- const {run,node,ctx}=harness();ctx.fetch=async()=>({ok:true,json:async()=>({models:{model:'gemini',thinking_level:'LOW',budget:{unlimited:true,remaining_usd:null}},speech:{unlimited:true,remaining:null}})});
+ const {run,node,ctx}=harness();ctx.fetch=async()=>({ok:true,json:async()=>({models:{model:'gpt-6.1-terra',thinking_level:'none',budget:{unlimited:true,remaining_usd:null}},speech:{unlimited:true,remaining:null}})});
  await run('health()');assert.equal(node('budget').textContent,'Usage tracking only · no app spending cap');assert(!node('budget').textContent.includes('$0'));
 });
 

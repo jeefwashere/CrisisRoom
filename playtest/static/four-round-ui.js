@@ -22,11 +22,11 @@ function renderFourRounds(s,locked){
  const answerReady=privateStage&&['coaching','assessment'].includes(ps.phase)&&!!ps.prompt;
  $('playFixture').disabled=locked||!!exerciseVoice||!!briefing||!fixtureClips.length||privateStage&&!answerReady;
  $('stopFixture').disabled=!fixturePlayback;$('useFixture').disabled=locked||!fixturePlayback?.finished;$('ownAnswer').disabled=busy||!fixturePlayback&&!fixtureDraft;
- $('fixtureHint').textContent=s.beta_mode?'Beta mode: these fictional human answers match the fixed question order. Play, review, then separately submit.':'Adaptive mode: Gemini may ask a different question. Use the sample only if it answers the actual question, or give your own response.';
+ $('fixtureHint').textContent=s.beta_mode?'Beta mode: these fictional human answers match the fixed question order. Play, review, then separately submit.':'Adaptive mode: the agent may ask a different question. Use the sample only if it answers the actual question, or give your own response.';
  if(privateStage){
   $('privateRoundLabel').textContent='ROUND '+s.exercise_round+' · PRIVATE · '+s.members.find(m=>m.id===s.me)?.name;
   $('privateTitle').textContent=ps.phase==='coaching'||ps.phase==='card_review'?'Your crisis coach':'Your examiner';
-  $('privateProgress').textContent=(ps.phase==='coaching'?'Coaching turn '+ps.turn+' of 3':ps.phase==='card_review'?'Review your response card':ps.phase==='assessment_done'?'Assessment finished; waiting for the other members':'Assessment stage '+ps.turn+' of 3')+' · '+(s.beta_mode?'Predictable beta questions':'Adaptive Gemini questions');
+  $('privateProgress').textContent=(ps.phase==='coaching'?'Coaching turn '+ps.turn+' of 3':ps.phase==='card_review'?'Review your response card':ps.phase==='assessment_done'?'Assessment finished; waiting for the other members':'Assessment stage '+ps.turn+' of 3')+' · '+(s.beta_mode?'Predictable beta questions':'Adaptive agent questions');
   $('privateScore').textContent=['coaching','card_review'].includes(ps.phase)?'Preparation earns no points.':ps.total+' / 100 points so far. Detailed feedback appears after all three assessment stages.';
   if(!exerciseVoice)$('privateAgentText').textContent=ps.prompt||ps.error||(ps.phase==='grading'?'Your submitted answer is ready for evidence based scoring.':ps.phase==='assessment_done'?'Your assessment is complete. Other members are finishing their own branches.':'Continue with your agent to receive the next question.');
   $('privateAgent').disabled=locked||!!exerciseVoice||!!fixturePlayback||ps.busy||ps.phase==='assessment_done';
@@ -89,7 +89,7 @@ async function runExerciseAgent(reunion=false){
  const owner=context(),controller=new AbortController(),voice=$('voiceOn').checked,task={owner,controller,player:voice?new PCMStreamPlayer():null};exerciseVoice=task;render();
  try{
   if(task.player){$('resumeAudio').hidden=false;await Promise.race([task.player.unlock(),new Promise(resolve=>setTimeout(resolve,1500))]);}
-  $('privateAgentStatus').textContent='Gemini is preparing this turn…';
+  $('privateAgentStatus').textContent='The agent is preparing this turn…';
   const response=await fetch('/api/roundtable/exercise/'+(reunion?'reunion':'agent'),{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+owner.token},body:JSON.stringify({command_id:uid(),voice}),signal:controller.signal});
   if(!response.ok){const error=await response.json();throw new Error(error.error||'Agent request failed');}
   let done=false;
